@@ -1,60 +1,52 @@
-// Wraps Azure AI Speech's short-audio REST API for speech-to-text.
-// Credentials come only from the local PC environment (AZURE_SPEECH_KEY /
-// AZURE_SPEECH_REGION) — never passed through from the glasses app.
+// Dispatches speech-to-text to whichever provider is configured. Anthropic
+// is intentionally not offered here — Claude's API does not currently
+// accept audio input, so it can't do STT.
+//
+// Provider selection:
+//   - STT_PROVIDER=azure|openai|gemini pins the provider explicitly.
+//   - Otherwise, the first provider with credentials present is used
+//     (checked in this order: azure, openai, gemini).
 
-const REGION = process.env.AZURE_SPEECH_REGION;
-const KEY = process.env.AZURE_SPEECH_KEY;
+import * as azure from "./stt/azure.js";
+import * as openai from "./stt/openai.js";
+import * as gemini from "./stt/gemini.js";
 
-/** Wrap raw 16-bit PCM samples in a minimal WAV header (Azure STT REST API expects a WAV container). */
-function pcmToWav(pcmBuffer, sampleRate = 16000, channels = 1, bitsPerSample = 16) {
-  const byteRate = (sampleRate * channels * bitsPerSample) / 8;
-  const blockAlign = (channels * bitsPerSample) / 8;
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + pcmBuffer.length, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16); // PCM fmt chunk size
-  header.writeUInt16LE(1, 20); // audio format = PCM
-  header.writeUInt16LE(channels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(pcmBuffer.length, 40);
-  return Buffer.concat([header, pcmBuffer]);
+const PROVIDERS = { azure, openai, gemini };
+const ORDER = ["azure", "openai", "gemini"];
+
+function pickProvider() {
+  const forced = process.env.STT_PROVIDER?.toLowerCase();
+  if (forced) {
+    const mod = PROVIDERS[forced];
+    if (!mod) throw new Error(`Unknown STT_PROVIDER "${forced}" (expected azure, openai, or gemini)`);
+    return { name: forced, mod };
+  }
+  const name = ORDER.find((n) => PROVIDERS[n].configured());
+  if (!name) return null;
+  return { name, mod: PROVIDERS[name] };
+}
+
+export function activeProviderName() {
+  return pickProvider()?.name ?? null;
+}
+
+export function anyProviderConfigured() {
+  return ORDER.some((n) => PROVIDERS[n].configured());
 }
 
 /**
  * Transcribe raw 16-bit PCM mono audio (as delivered by the G2's AudioEventPayload,
- * or already-WAV audio) via Azure Speech-to-Text.
+ * or already-WAV audio) using whichever STT provider is configured.
  * @param {Buffer} audioBuffer
  * @param {{sampleRate?: number, alreadyWav?: boolean, language?: string}} opts
  */
 export async function transcribePcm(audioBuffer, opts = {}) {
-  const { sampleRate = 16000, alreadyWav = false, language = "en-US" } = opts;
-  if (!KEY || !REGION) {
-    throw new Error("Azure Speech not configured: set AZURE_SPEECH_KEY and AZURE_SPEECH_REGION env vars");
+  const picked = pickProvider();
+  if (!picked) {
+    throw new Error(
+      "No speech-to-text provider configured. Run `npm run setup` in server/, or set one of: " +
+      "AZURE_SPEECH_KEY+AZURE_SPEECH_REGION, OPENAI_API_KEY, GEMINI_API_KEY."
+    );
   }
-  const wav = alreadyWav ? audioBuffer : pcmToWav(audioBuffer, sampleRate);
-  const url = `https://${REGION}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=${encodeURIComponent(language)}`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Ocp-Apim-Subscription-Key": KEY,
-      "Content-Type": `audio/wav; codecs=audio/pcm; samplerate=${sampleRate}`,
-      Accept: "application/json",
-    },
-    body: wav,
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`Azure Speech STT failed (${resp.status}): ${text}`);
-  }
-  const data = await resp.json();
-  if (data.RecognitionStatus && data.RecognitionStatus !== "Success") {
-    throw new Error(`Azure Speech STT status: ${data.RecognitionStatus}`);
-  }
-  return data.DisplayText ?? "";
+  return picked.mod.transcribe(audioBuffer, opts);
 }

@@ -16,16 +16,40 @@ This project has two parts:
 ## Running locally
 
 ```powershell
-# 1. Start the relay (needs your Azure Speech key/region in the environment)
+# 1. Configure a speech-to-text provider (one-time, interactive)
 cd server
 npm install
+npm run setup   # choose Azure Speech, OpenAI Whisper, or Google Gemini, paste your key
 node src/index.js
 
 # 2. Start the glasses app dev server
 cd ../app
 npm install
 npm run dev
+```
 
+`npm run setup` writes your key(s) to `server/.env`, which is gitignored and
+never leaves this machine. You can re-run it any time to switch providers or
+update a key. Prefer doing it by hand? Copy `server/.env.example` to
+`server/.env` and fill in one provider's block yourself, or set the same
+variables directly in your shell environment — either works, since the
+server loads `.env` automatically on startup.
+
+### Speech-to-text providers
+
+Only one is required. If `STT_PROVIDER` isn't set explicitly, the relay
+auto-detects the first one with credentials present, in this order:
+
+| Provider | Env vars | Get a key |
+|---|---|---|
+| Azure Speech | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | [portal.azure.com](https://portal.azure.com) → create a Speech resource → Keys and Endpoint |
+| OpenAI Whisper | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| Google Gemini | `GEMINI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — has a free tier |
+
+Anthropic isn't offered here — Claude's API doesn't currently accept audio
+input, so it can't do speech-to-text.
+
+```powershell
 # 3. Preview in the Even Hub simulator
 npx evenhub-simulator http://localhost:5173
 

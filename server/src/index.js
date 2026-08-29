@@ -1,8 +1,9 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { bridge } from "./copilotSession.js";
 import { getMessages } from "./store.js";
-import { transcribePcm } from "./transcribe.js";
+import { transcribePcm, activeProviderName, anyProviderConfigured } from "./transcribe.js";
 
 const app = express();
 app.use(cors()); // LAN-only tool; wildcard is fine for now
@@ -142,4 +143,13 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`copilot-glasses-relay listening on http://0.0.0.0:${PORT} (LAN only)`);
   if (TOKEN) console.log("Auth: RELAY_TOKEN required via x-relay-token header or ?token=");
   else console.log("Auth: DISABLED (no RELAY_TOKEN set) — fine for local dev only");
+  if (!anyProviderConfigured()) {
+    console.warn(
+      "No speech-to-text provider is configured — voice transcription will fail.\n" +
+      "Run `npm run setup` in server/ to enter a key (Azure Speech, OpenAI, or Gemini),\n" +
+      "saved to server/.env (gitignored), or set the matching env vars yourself."
+    );
+  } else {
+    console.log(`Speech-to-text provider: ${activeProviderName()}`);
+  }
 });

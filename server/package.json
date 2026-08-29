@@ -6,11 +6,13 @@
   "description": "Local relay server that bridges an Even Realities G2 glasses app to a real GitHub Copilot CLI session via @github/copilot-sdk.",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "setup": "node src/setup.js"
   },
   "dependencies": {
     "@github/copilot-sdk": "^1.0.13-preview.2",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.19.2"
   }
 }
