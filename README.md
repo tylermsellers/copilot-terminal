@@ -64,3 +64,20 @@ npx evenhub qr --url http://<your-lan-ip>:5173
   flow).
 - **Chat screen**: tap the footer to start/stop voice recording. Double-tap
   returns to the session picker.
+
+## Configuring the relay connection (phone-side settings)
+
+The G2/R1 touchpad has no keyboard, so there's no way to type a relay URL or
+auth token from the glasses themselves. Instead, opening this app from the
+**Even App's own plugin menu on your phone** (rather than launching it to the
+glasses) shows a normal HTML settings screen — enter the relay server's URL
+and (optional) auth token there, tap **Test connection** to confirm it's
+reachable, then **Save**. The glasses UI picks up the saved value on its next
+launch, via the SDK's persistent `setLocalStorage`.
+
+Note: the relay's address must also be included in this app's `network`
+permission whitelist (`app.json`) — that's a build-time allowlist enforced by
+the Even App itself, separate from what's saved in settings. If your relay's
+address moves to a different network, the app needs to be repacked with the
+new address whitelisted.
+

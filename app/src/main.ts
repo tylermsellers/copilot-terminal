@@ -8,6 +8,7 @@ import {
   AudioInputSource,
   OsEventTypeList,
   type EvenHubEvent,
+  type LaunchSource,
 } from '@evenrealities/even_hub_sdk'
 import { measureTextWrap } from '@evenrealities/pretext'
 import {
@@ -19,8 +20,14 @@ import {
   interrupt,
   getHistory,
   transcribe,
+  loadRelayConfig,
+  saveRelayConfig,
+  getRelayUrl,
+  getRelayToken,
+  checkHealth,
   type SessionSummary,
 } from './api'
+import { renderPhoneSettings } from './phoneSettings'
 
 // ── Container IDs (reused across mutually-exclusive layouts) ──────
 
@@ -72,6 +79,17 @@ const state = {
 }
 
 const bridge = await waitForEvenAppBridge()
+
+// Register onLaunchSource immediately — it fires exactly once, so this must
+// happen before anything else can race it. Wrapped in a promise (with a
+// short timeout fallback to 'glassesMenu') so boot logic below can await it.
+const launchSourcePromise = new Promise<LaunchSource>((resolve) => {
+  const unsub = bridge.onLaunchSource((source) => {
+    unsub()
+    resolve(source)
+  })
+  setTimeout(() => resolve('glassesMenu'), 1500)
+})
 
 // ── Container layout builders ────────────────────────────────────
 
@@ -591,5 +609,25 @@ async function handleEvent(event: EvenHubEvent) {
 
 // ── Boot ────────────────────────────────────────────────────────
 
-await showSessionPicker()
+// Always load any previously-saved relay config first, regardless of launch
+// source, so a relay URL set from the phone settings screen applies to the
+// glasses UI too.
+await loadRelayConfig(bridge)
+
+const launchSource = await launchSourcePromise
+if (launchSource === 'appMenu') {
+  // Opened from the Even App's own plugin menu (on the phone screen, not
+  // the glasses) — render a normal HTML/CSS settings form instead of the
+  // glasses' pixel-container UI. This is the only place a user can type
+  // free text, since the G2/R1 touchpad has no keyboard input at all.
+  renderPhoneSettings({
+    bridge,
+    getRelayUrl,
+    getRelayToken,
+    saveRelayConfig,
+    checkHealth,
+  })
+} else {
+  await showSessionPicker()
+}
 
