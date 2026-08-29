@@ -25,6 +25,7 @@ import {
   getRelayUrl,
   getRelayToken,
   checkHealth,
+  isRelayConfigured,
   type SessionSummary,
 } from './api'
 import { renderPhoneSettings } from './phoneSettings'
@@ -66,6 +67,10 @@ const state = {
   recording: false,
   audioChunks: [] as Uint8Array[],
   pickerSessions: [] as SessionSummary[],
+  // Set when the picker is showing a fallback (connection error / setup-
+  // required) screen with a single "Retry"-style choice, so onPickerSelect
+  // knows to re-check/retry instead of treating the tap as "+ New session".
+  pickerFallback: null as null | 'error' | 'setup',
   currentChoices: [] as string[],
   transcript: [] as TranscriptEntry[],
   // Restore point for the choice screen we came from, so voice-compose Cancel
@@ -307,18 +312,48 @@ async function showSessionPicker() {
   try {
     sessions = await listSessions(8)
   } catch (err: any) {
+    state.pickerFallback = 'error'
     await rebuild(choiceContainers(`Can't reach relay:\n${err.message}`, ['Retry']))
     state.mode = 'picker'
     return
   }
+  state.pickerFallback = null
   state.pickerSessions = sessions
   state.pendingChoice = null
   const choices = ['+ New session', ...sessions.map((s) => s.title || '(untitled)')]
-  await showChoices('Pick a session (or start new):', choices)
+  await showChoices('Pick a session:\ntap = open   double-tap = exit', choices)
   state.mode = 'picker' // showChoices defaults to 'choice'; override since this is the session picker
 }
 
+// Shown on the glasses when no relay has ever been configured yet — rather
+// than silently guessing an address, this is a hard gate: the user must
+// open the app from the phone's Even Hub menu (not the glasses) to enter
+// their relay URL first, since the G2/R1 touchpad has no keyboard input.
+async function showSetupRequired() {
+  stopPolling()
+  stopTicking()
+  state.mode = 'picker'
+  state.pickerFallback = 'setup'
+  await rebuild(
+    choiceContainers('Setup required:\nOpen this app from your\nphone menu to connect', ['Retry'])
+  )
+  state.mode = 'picker'
+}
+
 async function onPickerSelect(index: number) {
+  if (state.pickerFallback === 'setup') {
+    if (isRelayConfigured()) {
+      state.pickerFallback = null
+      await showSessionPicker()
+    } else {
+      await showSetupRequired()
+    }
+    return
+  }
+  if (state.pickerFallback === 'error') {
+    await showSessionPicker()
+    return
+  }
   if (index <= 0) {
     state.sessionId = null
     await startChat()
@@ -331,21 +366,36 @@ async function onPickerSelect(index: number) {
 
 // ── Chat ──────────────────────────────────────────────────────────
 
+// Races a promise against a hard deadline so a stalled server call (e.g. an
+// unresponsive resumeSession/getEvents round trip) can never leave the UI
+// stuck — the picker "tap does nothing" bug traced to an un-timed-out
+// getHistory() call for existing sessions (new sessions skip it entirely,
+// which is why only *existing* sessions appeared to hang).
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ])
+}
+
 async function startChat() {
   state.lastMessageId = 0
   state.transcript = []
   state.busy = false
+  // Render immediately so a tap always produces instant visual feedback,
+  // even before the optional history fetch below resolves (or times out).
+  await renderChat(true)
   if (state.sessionId) {
     try {
-      const history = await getHistory(state.sessionId, 6)
+      const history = await withTimeout(getHistory(state.sessionId, 6), 4000)
       for (const turn of history) {
         state.transcript.push({ text: turn.text, kind: turn.role === 'user' ? 'user' : 'assistant' })
       }
+      await renderChat(true)
     } catch {
-      // best-effort context peek only; fine if it fails
+      // best-effort context peek only; fine if it fails or times out
     }
   }
-  await renderChat(true)
   startTicking()
   if (state.sessionId) startPolling()
 }
@@ -627,6 +677,11 @@ if (launchSource === 'appMenu') {
     saveRelayConfig,
     checkHealth,
   })
+} else if (!isRelayConfigured()) {
+  // Launched to the glasses but no relay URL has ever been saved — don't
+  // silently guess an address (there is no safe universal default across
+  // users/forks). Require the phone-side setup step first.
+  await showSetupRequired()
 } else {
   await showSessionPicker()
 }

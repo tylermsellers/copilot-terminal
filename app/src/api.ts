@@ -1,5 +1,14 @@
 // Thin client for the local copilot-glasses-relay server.
 //
+// IMPORTANT — this app is distributed as a self-pack build, not a single
+// shared Even Hub store package. Even Hub's network permission whitelist
+// only accepts exact origins (no wildcards, no bare hostnames — see
+// https://hub.evenrealities.com/docs/build/networking), and every user's
+// relay runs on their own LAN at a different address. That means one
+// person's IP can never be baked into a build everyone installs — each
+// user must set their OWN relay origin in app.json's whitelist (see
+// scripts/configure-whitelist.mjs) and pack their own .ehpk. See README.md.
+//
 // The relay URL/token are user-configurable from the phone-side settings
 // screen (see main.ts's 'appMenu' launch-source branch) rather than baked
 // into the build — persisted via the SDK's bridge.setLocalStorage, which
@@ -7,7 +16,11 @@
 // Even App's Flutter WebView).
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
 
-export const DEFAULT_RELAY_URL = 'http://192.168.0.49:4756'
+// Deliberately NOT a real address — there is no safe universal default
+// across users/forks. An empty string means "not configured yet"; the
+// glasses-side boot flow gates on this and sends the user to the phone
+// settings screen instead of silently guessing an address.
+export const DEFAULT_RELAY_URL = ''
 const STORAGE_KEY_URL = 'copilotTerminal.relayUrl'
 const STORAGE_KEY_TOKEN = 'copilotTerminal.relayToken'
 
@@ -16,6 +29,11 @@ let relayToken = ''
 
 export function getRelayUrl(): string {
   return relayUrl
+}
+
+/** True once the user has explicitly saved a relay URL (from the phone settings screen). */
+export function isRelayConfigured(): boolean {
+  return relayUrl.trim().length > 0
 }
 
 export function getRelayToken(): string {

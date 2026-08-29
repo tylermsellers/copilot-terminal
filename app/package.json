@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "configure": "node scripts/configure-whitelist.mjs"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.14",

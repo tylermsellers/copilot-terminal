@@ -107,8 +107,14 @@ class Bridge {
   /** Read-only history for a session, for showing context before you start typing. */
   async getSessionHistory(sessionId, limit = 10) {
     await this.ensureStarted();
-    const session = this.sessions.get(sessionId) ?? (await this.client.resumeSession(sessionId, {}));
-    const events = await session.getEvents();
+    // resumeSession/getEvents have no timeout of their own in the SDK — bound
+    // both here so a stalled call fails fast (returning an empty history)
+    // instead of leaving the client's fetch hanging indefinitely. This is
+    // a best-effort context peek; an empty result on timeout is harmless.
+    const withTimeout = (promise, ms) =>
+      Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
+    const session = this.sessions.get(sessionId) ?? (await withTimeout(this.client.resumeSession(sessionId, {}), 5000));
+    const events = await withTimeout(session.getEvents(), 5000);
     const turns = events
       .filter((e) => e.type === "assistant.message" || e.type === "user.message")
       .map((e) => ({ role: e.type === "assistant.message" ? "assistant" : "user", text: e.data?.content ?? "" }));

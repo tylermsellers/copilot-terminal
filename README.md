@@ -13,6 +13,27 @@ This project has two parts:
   a bordered scrolling transcript + status footer, permission/question
   prompts, and a voice-compose flow (record → transcribe → confirm → send).
 
+## Important: this is a self-pack app, not a single shared Even Hub download
+
+The relay server runs **locally on your own machine**, reachable only on
+your LAN, at an address that's different for everyone. Even Hub's `app.json`
+network permission whitelist only accepts exact origins — no wildcards, no
+bare hostnames (confirmed in
+[Even's own networking docs](https://hub.evenrealities.com/docs/build/networking)).
+That means there is no single `.ehpk` that can work out of the box for every
+user: whoever's LAN IP got baked into the whitelist at build time is the only
+person it will ever work for.
+
+So instead of a single public Even Hub store listing, **everyone builds and
+packs their own copy** with their own address baked in, then sideloads it as
+a Private Build. It's still the same open-source app — just a per-user build
+step instead of a one-click install. See "Packaging your own build" below.
+
+Want to reach your relay from outside your LAN (e.g. while traveling)? Fork
+the repo and point it at a [Tailscale](https://tailscale.com/) address, a
+Cloudflare Tunnel, or similar — anything that gives you one stable address to
+whitelist works the same way.
+
 ## Running locally
 
 ```powershell
@@ -65,6 +86,40 @@ npx evenhub qr --url http://<your-lan-ip>:5173
 - **Chat screen**: tap the footer to start/stop voice recording. Double-tap
   returns to the session picker.
 
+## First-time setup on the glasses
+
+The first time you launch the app to your glasses, before any relay URL has
+been saved, it shows **"Setup required: Open this app from your phone menu
+to connect"** instead of guessing an address. Open the app from the Even
+App's own plugin menu on your phone (not by launching it to the glasses) to
+complete setup — see the next section.
+
+## Packaging your own build
+
+Before you can pack a working `.ehpk`, tell it which relay address to trust:
+
+```powershell
+cd app
+npm run configure   # auto-detects your LAN IP, lets you confirm the port
+```
+
+This rewrites `app.json`'s `network` permission whitelist to your own
+`http://<your-lan-ip>:<port>` — it only affects your local copy of the repo,
+nothing is shared. Then build and pack as usual:
+
+```powershell
+npm run build
+npx evenhub pack app.json dist -o copilot-terminal.ehpk
+```
+
+Sideload the resulting `.ehpk` as a **Private Build** from the Even App
+(Even Hub → your account → Private Builds → upload), rather than publishing
+it to the public store — see Even's
+[Private Testing docs](https://hub.evenrealities.com/docs/test/private-testing).
+
+Bump `app.json`'s `"version"` before every rebuild/repack you plan to
+distribute (even to yourself) so you can tell builds apart later.
+
 ## Configuring the relay connection (phone-side settings)
 
 The G2/R1 touchpad has no keyboard, so there's no way to type a relay URL or
@@ -76,8 +131,9 @@ reachable, then **Save**. The glasses UI picks up the saved value on its next
 launch, via the SDK's persistent `setLocalStorage`.
 
 Note: the relay's address must also be included in this app's `network`
-permission whitelist (`app.json`) — that's a build-time allowlist enforced by
-the Even App itself, separate from what's saved in settings. If your relay's
-address moves to a different network, the app needs to be repacked with the
-new address whitelisted.
+permission whitelist (`app.json`, set via `npm run configure` above) — that's
+a build-time allowlist enforced by the Even App itself, separate from what's
+saved in settings. If your relay's address moves to a different network, the
+app needs to be reconfigured, rebuilt, and repacked with the new address
+whitelisted.
 
