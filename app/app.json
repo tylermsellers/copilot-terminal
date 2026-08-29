@@ -1,0 +1,23 @@
+{
+  "package_id": "com.tylermsellers.copilotglasseslink",
+  "edition": "202601",
+  "name": "Copilot Terminal",
+  "version": "0.1.0",
+  "min_app_version": "2.2.6",
+  "min_sdk_version": "0.0.14",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Connects to a local relay server on your PC to send/receive GitHub Copilot CLI messages.",
+      "whitelist": [
+        "http://192.168.0.49:4756"
+      ]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Captures your voice to reply to Copilot or answer permission/confirmation prompts."
+    }
+  ],
+  "supported_languages": ["en"]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "copilot-glasses-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local relay server that bridges an Even Realities G2 glasses app to a real GitHub Copilot CLI session via @github/copilot-sdk.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^1.0.13-preview.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}
