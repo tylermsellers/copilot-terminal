@@ -44,34 +44,39 @@ export interface PhoneAppDeps {
 
 const STYLE = `
   :root {
-    color-scheme: light dark;
-    --bg: #F2F2F7;
-    --bg-elevated: #FFFFFF;
-    --bar-bg: rgba(249,249,249,0.85);
-    --label: #000000;
-    --label-secondary: rgba(60,60,67,0.6);
-    --separator: rgba(60,60,67,0.29);
-    --fill-secondary: rgba(120,120,128,0.16);
-    --accent: #007AFF;
+    color-scheme: dark light;
+    /* GitHub Copilot–style dark theme (primer dark palette + Copilot purple) */
+    --bg: #0d1117;
+    --bg-elevated: #161b22;
+    --bar-bg: rgba(13,17,23,0.85);
+    --label: #e6edf3;
+    --label-secondary: #7d8590;
+    --separator: #30363d;
+    --fill-secondary: rgba(139,148,158,0.16);
+    --accent: #a371f7;
+    --accent-strong: #8957e5;
     --accent-contrast: #FFFFFF;
-    --green: #34C759;
-    --red: #FF3B30;
-    --bubble-user: #007AFF;
+    --green: #3fb950;
+    --red: #f85149;
     --bubble-user-text: #FFFFFF;
-    --bubble-assistant: rgba(120,120,128,0.16);
-    --bubble-assistant-text: #000000;
+    --bubble-assistant: var(--bg-elevated);
+    --bubble-assistant-text: var(--label);
   }
-  @media (prefers-color-scheme: dark) {
+  @media (prefers-color-scheme: light) {
     :root {
-      --bg: #000000;
-      --bg-elevated: #1C1C1E;
-      --bar-bg: rgba(28,28,30,0.85);
-      --label: #FFFFFF;
-      --label-secondary: rgba(235,235,245,0.6);
-      --separator: rgba(84,84,88,0.6);
-      --fill-secondary: rgba(120,120,128,0.32);
-      --bubble-assistant: rgba(120,120,128,0.32);
-      --bubble-assistant-text: #FFFFFF;
+      --bg: #ffffff;
+      --bg-elevated: #f6f8fa;
+      --bar-bg: rgba(255,255,255,0.85);
+      --label: #1f2328;
+      --label-secondary: #656d76;
+      --separator: #d0d7de;
+      --fill-secondary: rgba(175,184,193,0.24);
+      --accent: #8250df;
+      --accent-strong: #6639ba;
+      --green: #1a7f37;
+      --red: #cf222e;
+      --bubble-assistant: var(--bg-elevated);
+      --bubble-assistant-text: #1f2328;
     }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -103,11 +108,16 @@ const STYLE = `
     min-width: 0;
     text-align: center;
     font-size: 17px;
-    font-weight: 600;
+    font-weight: 700;
     pointer-events: none;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .navbar-title::before {
+    content: '\\2726';
+    color: var(--accent);
+    margin-right: 5px;
   }
   .navbar-side { display: flex; align-items: center; min-width: 44px; }
   .navbar-side.right { justify-content: flex-end; }
@@ -132,7 +142,8 @@ const STYLE = `
   .list-section { margin: 20px 16px; }
   .list-group {
     background: var(--bg-elevated);
-    border-radius: 14px;
+    border: 1px solid var(--separator);
+    border-radius: 12px;
     overflow: hidden;
   }
   .list-row {
@@ -173,20 +184,32 @@ const STYLE = `
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 13px 16px;
-    color: var(--accent);
+    padding: 14px 16px;
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    color: #fff;
     font-size: 16px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
   }
-  .new-session-btn:active { background: var(--fill-secondary); }
+  .new-session-btn:active { filter: brightness(0.9); }
   .new-session-btn .plus-badge {
     width: 22px; height: 22px;
     border-radius: 6px;
-    background: var(--accent);
+    background: rgba(255,255,255,0.25);
     color: #fff;
     display: flex; align-items: center; justify-content: center;
     font-size: 15px; font-weight: 600;
+  }
+  .scope-toggle-row { text-align: center; margin: -8px 16px 20px; }
+  .scope-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 8px 12px;
   }
 
   /* ── Chat ──────────────────────────────────────────────────── */
@@ -203,8 +226,17 @@ const STYLE = `
     white-space: pre-wrap;
     word-wrap: break-word;
   }
-  .bubble.user { background: var(--bubble-user); color: var(--bubble-user-text); border-bottom-right-radius: 4px; }
-  .bubble.assistant { background: var(--bubble-assistant); color: var(--bubble-assistant-text); border-bottom-left-radius: 4px; }
+  .bubble.user {
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+    color: var(--bubble-user-text);
+    border-bottom-right-radius: 4px;
+  }
+  .bubble.assistant {
+    background: var(--bubble-assistant);
+    color: var(--bubble-assistant-text);
+    border: 1px solid var(--separator);
+    border-bottom-left-radius: 4px;
+  }
   .pill-row { display: flex; justify-content: center; }
   .pill {
     font-size: 12px;
@@ -217,6 +249,7 @@ const STYLE = `
 
   .action-card {
     background: var(--bg-elevated);
+    border: 1px solid var(--separator);
     border-radius: 14px;
     padding: 12px 14px;
     max-width: 88%;
@@ -236,7 +269,7 @@ const STYLE = `
     cursor: pointer;
     font-family: inherit;
   }
-  .action-btn.primary { background: var(--accent); color: #fff; }
+  .action-btn.primary { background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #fff; }
   .action-btn.danger { background: var(--red); color: #fff; }
   .action-btn:disabled { opacity: 0.45; }
   .action-card .resolved { font-size: 13px; color: var(--label-secondary); }
@@ -263,7 +296,7 @@ const STYLE = `
   .dot-flash { display: inline-flex; gap: 3px; }
   .dot-flash span {
     width: 5px; height: 5px; border-radius: 50%;
-    background: var(--label-secondary);
+    background: var(--accent);
     animation: dotFlash 1s infinite ease-in-out both;
   }
   .dot-flash span:nth-child(2) { animation-delay: 0.15s; }
@@ -299,7 +332,7 @@ const STYLE = `
     width: 32px; height: 32px;
     border-radius: 50%;
     border: none;
-    background: var(--accent);
+    background: linear-gradient(135deg, var(--accent-strong), var(--accent));
     color: #fff;
     font-size: 15px;
     display: flex; align-items: center; justify-content: center;
@@ -325,7 +358,7 @@ const STYLE = `
     width: 100%;
     padding: 12px 14px;
     border-radius: 12px;
-    border: none;
+    border: 1px solid var(--separator);
     background: var(--fill-secondary);
     color: var(--label);
     font-size: 16px;
@@ -343,7 +376,7 @@ const STYLE = `
     font-family: inherit;
     cursor: pointer;
   }
-  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.primary { background: linear-gradient(135deg, var(--accent-strong), var(--accent)); color: #fff; }
   .btn.secondary { background: var(--fill-secondary); color: var(--label); }
   .btn:disabled { opacity: 0.5; }
   .status-box {
@@ -380,6 +413,10 @@ const state = {
   screen: 'sessions' as 'sessions' | 'chat' | 'settings',
   sessions: [] as SessionSummary[],
   sessionsLoading: false,
+  // 'known' = only sessions created/resumed via this relay (default, avoids
+  // surfacing every local Copilot CLI session on the machine); 'all' is an
+  // escape hatch to browse the full unscoped system-wide list.
+  pickerScope: 'known' as 'known' | 'all',
   sessionId: null as string | null,
   sessionTitle: 'New session',
   entries: [] as ChatEntry[],
@@ -429,7 +466,7 @@ async function showSessions() {
   state.sessionsLoading = true
   renderSessionsScreen()
   try {
-    state.sessions = await listSessions(20)
+    state.sessions = await listSessions(20, state.pickerScope)
   } catch {
     state.sessions = []
   }
@@ -469,6 +506,11 @@ function renderSessionsScreen() {
         </div>
       </div>
       <div class="list-section" id="sessionsSection"></div>
+      <div class="scope-toggle-row">
+        <button class="scope-toggle-btn" id="scopeToggleBtn">${
+          state.pickerScope === 'known' ? 'Browse all sessions' : 'Show only my sessions'
+        }</button>
+      </div>
     </div>
   `
   document.getElementById('settingsBtn')!.addEventListener('click', () => {
@@ -477,6 +519,10 @@ function renderSessionsScreen() {
   })
   document.getElementById('newSessionBtn')!.addEventListener('click', () => {
     void openSession(null, 'New session')
+  })
+  document.getElementById('scopeToggleBtn')!.addEventListener('click', () => {
+    state.pickerScope = state.pickerScope === 'known' ? 'all' : 'known'
+    void showSessions()
   })
 
   const section = document.getElementById('sessionsSection')!

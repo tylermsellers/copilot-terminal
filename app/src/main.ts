@@ -86,6 +86,11 @@ const state = {
   // required) screen with a single "Retry"-style choice, so onPickerSelect
   // knows to re-check/retry instead of treating the tap as "+ New session".
   pickerFallback: null as null | 'error' | 'setup',
+  // 'known' = sessions this relay created or that were previously opened
+  // via the "browse all" view (see server/src/registry.js). 'all' bypasses
+  // that scoping and shows every local Copilot CLI session system-wide —
+  // useful for deliberately picking up e.g. a session open in a terminal.
+  pickerScope: 'known' as 'known' | 'all',
   currentChoices: [] as string[],
   transcript: [] as TranscriptEntry[],
   // Count of newest transcript entries hidden below the current view when
@@ -375,7 +380,7 @@ async function showSessionPicker() {
   await rebuild(choiceContainers('Loading sessions…', ['Please wait…']))
   let sessions: SessionSummary[] = []
   try {
-    sessions = await listSessions(8)
+    sessions = await listSessions(8, state.pickerScope)
   } catch (err: any) {
     state.pickerFallback = 'error'
     await rebuild(choiceContainers(`Can't reach relay:\n${err.message}`, ['Retry']))
@@ -385,7 +390,8 @@ async function showSessionPicker() {
   state.pickerFallback = null
   state.pickerSessions = sessions
   state.pendingChoice = null
-  const choices = ['+ New session', ...sessions.map((s) => s.title || '(untitled)')]
+  const scopeToggleLabel = state.pickerScope === 'known' ? '⋯ Browse all sessions' : '⋯ Show only my sessions'
+  const choices = ['+ New session', ...sessions.map((s) => s.title || '(untitled)'), scopeToggleLabel]
   await showChoices('Pick a session:\n● open   ●● exit', choices)
   state.mode = 'picker' // showChoices defaults to 'choice'; override since this is the session picker
 }
@@ -422,6 +428,12 @@ async function onPickerSelect(index: number) {
   if (index <= 0) {
     state.sessionId = null
     await startChat()
+    return
+  }
+  // Last entry is always the known/all scope toggle, not a real session.
+  if (index === state.pickerSessions.length + 1) {
+    state.pickerScope = state.pickerScope === 'known' ? 'all' : 'known'
+    await showSessionPicker()
     return
   }
   const chosen = state.pickerSessions[index - 1]

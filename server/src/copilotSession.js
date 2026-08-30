@@ -2,6 +2,7 @@
 // message-buffer API that the glasses app can consume over plain HTTP.
 import { CopilotClient } from "@github/copilot-sdk";
 import { pushMessage } from "./store.js";
+import { markKnown, isKnown } from "./registry.js";
 
 /** @typedef {"idle"|"busy"} SessionState */
 
@@ -205,6 +206,7 @@ class Bridge {
     this.sessions.set(session.sessionId, session);
     this.setState(session.sessionId, "idle");
     this.touch(session.sessionId);
+    markKnown(session.sessionId);
     this.wireEvents(session);
     return session;
   }
@@ -320,10 +322,20 @@ class Bridge {
     return true;
   }
 
-  async listSessions(limit = 10) {
+  /**
+   * @param {number} limit
+   * @param {{ all?: boolean }} [opts] `all: true` bypasses the known-session
+   *   scope and returns every local Copilot CLI session system-wide — the
+   *   old (pre-scoping) behavior, still useful when you deliberately want
+   *   to pick up an arbitrary session (e.g. one currently open in a
+   *   terminal). Default is scoped to sessions this relay created or that
+   *   were previously opened via this "all" view (see registry.js).
+   */
+  async listSessions(limit = 10, opts = {}) {
     await this.ensureStarted();
     const sessions = await this.client.listSessions();
-    return sessions.slice(0, limit).map((s) => {
+    const scoped = opts.all ? sessions : sessions.filter((s) => isKnown(s.sessionId));
+    return scoped.slice(0, limit).map((s) => {
       const timestamp = s.modifiedTime ?? s.startTime ?? null;
       const cwd = s.context?.workingDirectory ?? "";
       const rawTitle = (s.summary || "").trim();

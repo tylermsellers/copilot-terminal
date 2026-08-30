@@ -12,6 +12,9 @@ npm-debug.log*
 # debug artifacts from simulator screenshots
 *.png
 
+# persistent server-side state (session registry, etc.)
+server/data/
+
 .vscode/*
 !.vscode/extensions.json
 .idea

@@ -39,7 +39,8 @@ app.get("/api/info", async (_req, res) => {
 app.get("/api/sessions", async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 10;
-    res.json({ sessions: await bridge.listSessions(limit) });
+    const all = req.query.scope === "all";
+    res.json({ sessions: await bridge.listSessions(limit, { all }) });
   } catch (err) {
     res.json({ sessions: [], error: err.message });
   }

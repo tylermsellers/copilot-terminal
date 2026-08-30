@@ -81,8 +81,8 @@ export interface RelayMessage {
   [key: string]: any
 }
 
-export async function listSessions(limit = 8): Promise<SessionSummary[]> {
-  const res = await fetch(`${relayUrl}/api/sessions?limit=${limit}`, { headers: headers(false) })
+export async function listSessions(limit = 8, scope: 'known' | 'all' = 'known'): Promise<SessionSummary[]> {
+  const res = await fetch(`${relayUrl}/api/sessions?limit=${limit}&scope=${scope}`, { headers: headers(false) })
   const data = await res.json()
   return data.sessions ?? []
 }
