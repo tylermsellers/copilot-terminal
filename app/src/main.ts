@@ -30,6 +30,20 @@ import {
 } from './api'
 import { renderPhoneSettings } from './phoneSettings'
 
+// Visible-first-paint placeholder + crash safety net. Real hardware showed a
+// permanently blank white phone screen with no diagnostic available (no
+// console access on-device) — this guarantees *something* renders
+// immediately, and any uncaught error/rejection replaces it with the error
+// text instead of silently leaving a blank screen.
+document.body.innerHTML =
+  '<div style="font-family:sans-serif;padding:20px;color:#666">Loading Copilot Terminal…</div>'
+function showFatalError(err: unknown) {
+  const message = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err)
+  document.body.innerHTML = `<pre style="font-family:monospace;padding:20px;color:#b3261e;white-space:pre-wrap;">Copilot Terminal failed to start:\n\n${message}</pre>`
+}
+window.addEventListener('error', (e) => showFatalError(e.error ?? e.message))
+window.addEventListener('unhandledrejection', (e) => showFatalError(e.reason))
+
 // ── Container IDs (reused across mutually-exclusive layouts) ──────
 
 const TRANSCRIPT_ID = 1 // chat layout: scrolling log
@@ -83,18 +97,41 @@ const state = {
   tickTimer: undefined as ReturnType<typeof setInterval> | undefined,
 }
 
-const bridge = await waitForEvenAppBridge()
+let bridge: Awaited<ReturnType<typeof waitForEvenAppBridge>>
+try {
+  bridge = await waitForEvenAppBridge()
+} catch (err) {
+  showFatalError(err)
+  throw err
+}
 
 // Register onLaunchSource immediately — it fires exactly once, so this must
-// happen before anything else can race it. Wrapped in a promise (with a
-// short timeout fallback to 'glassesMenu') so boot logic below can await it.
-const launchSourcePromise = new Promise<LaunchSource>((resolve) => {
-  const unsub = bridge.onLaunchSource((source) => {
-    unsub()
-    resolve(source)
-  })
-  setTimeout(() => resolve('glassesMenu'), 1500)
+// happen before anything else can race it.
+//
+// IMPORTANT: unlike an earlier version of this code, we do NOT discard the
+// real event if it arrives after a fallback timeout fires. A blank white
+// phone screen was reported on real hardware from exactly that bug: if the
+// real 'appMenu' event arrived after the timeout had already provisionally
+// assumed 'glassesMenu' (which only makes bridge calls targeting the
+// glasses, touching nothing in the phone WebView's DOM), the phone screen
+// stayed blank forever because the late event was silently ignored. Instead,
+// every time the source becomes known (provisionally or for real) we call
+// bootFromSource(), and it re-runs harmlessly if called twice with the same
+// answer, or corrects course if the real event contradicts the guess.
+let sourceHandled = false
+bridge.onLaunchSource((source) => {
+  sourceHandled = true
+  void bootFromSource(source)
 })
+setTimeout(() => {
+  if (!sourceHandled) {
+    // Simulator never fires onLaunchSource at all; real hardware timing is
+    // unconfirmed. Assume the more common case (glasses) so testing/normal
+    // use isn't stuck waiting — but leave the listener active so a late
+    // real event can still correct this (see bootFromSource).
+    void bootFromSource('glassesMenu')
+  }
+}, 1500)
 
 // ── Container layout builders ────────────────────────────────────
 
@@ -659,30 +696,37 @@ async function handleEvent(event: EvenHubEvent) {
 
 // ── Boot ────────────────────────────────────────────────────────
 
-// Always load any previously-saved relay config first, regardless of launch
-// source, so a relay URL set from the phone settings screen applies to the
-// glasses UI too.
-await loadRelayConfig(bridge)
-
-const launchSource = await launchSourcePromise
-if (launchSource === 'appMenu') {
-  // Opened from the Even App's own plugin menu (on the phone screen, not
-  // the glasses) — render a normal HTML/CSS settings form instead of the
-  // glasses' pixel-container UI. This is the only place a user can type
-  // free text, since the G2/R1 touchpad has no keyboard input at all.
-  renderPhoneSettings({
-    bridge,
-    getRelayUrl,
-    getRelayToken,
-    saveRelayConfig,
-    checkHealth,
-  })
-} else if (!isRelayConfigured()) {
-  // Launched to the glasses but no relay URL has ever been saved — don't
-  // silently guess an address (there is no safe universal default across
-  // users/forks). Require the phone-side setup step first.
-  await showSetupRequired()
-} else {
-  await showSessionPicker()
+// Called whenever the launch source becomes known — once provisionally (the
+// 1500ms fallback timeout above) and, if that guess was wrong, again for
+// real once the actual onLaunchSource event arrives. Idempotent against
+// being called twice with the same answer.
+let bootedAs: LaunchSource | null = null
+async function bootFromSource(source: LaunchSource) {
+  if (bootedAs === source) return
+  bootedAs = source
+  // Always reload any previously-saved relay config, regardless of launch
+  // source, so a relay URL set from the phone settings screen applies to
+  // the glasses UI too.
+  await loadRelayConfig(bridge)
+  if (source === 'appMenu') {
+    // Opened from the Even App's own plugin menu (on the phone screen, not
+    // the glasses) — render a normal HTML/CSS settings form instead of the
+    // glasses' pixel-container UI. This is the only place a user can type
+    // free text, since the G2/R1 touchpad has no keyboard input at all.
+    renderPhoneSettings({
+      bridge,
+      getRelayUrl,
+      getRelayToken,
+      saveRelayConfig,
+      checkHealth,
+    })
+  } else if (!isRelayConfigured()) {
+    // Launched to the glasses but no relay URL has ever been saved — don't
+    // silently guess an address (there is no safe universal default across
+    // users/forks). Require the phone-side setup step first.
+    await showSetupRequired()
+  } else {
+    await showSessionPicker()
+  }
 }
 
