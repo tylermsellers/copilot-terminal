@@ -127,6 +127,22 @@ export async function interrupt(sessionId: string) {
   })
 }
 
+// Tell the relay to let go of its live connection to this session (e.g. when
+// navigating back to the session list) instead of waiting out the idle
+// timeout. Best-effort — a busy (mid-turn) session is never yanked, and a
+// failed/offline call here just means the relay's own idle sweep will
+// release it a little later instead.
+export async function releaseSession(sessionId: string) {
+  try {
+    await fetch(`${relayUrl}/api/sessions/${encodeURIComponent(sessionId)}/release`, {
+      method: 'POST',
+      headers: headers(false),
+    })
+  } catch {
+    // best-effort only
+  }
+}
+
 export async function getHistory(sessionId: string, limit = 6): Promise<{ role: 'user' | 'assistant'; text: string }[]> {
   const res = await fetch(`${relayUrl}/api/sessions/${encodeURIComponent(sessionId)}/history?limit=${limit}`, {
     headers: headers(false),

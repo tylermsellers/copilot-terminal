@@ -31,6 +31,7 @@ import {
   getRelayToken,
   saveRelayConfig,
   isRelayConfigured,
+  releaseSession,
   type SessionSummary,
   type RelayMessage,
 } from './api'
@@ -418,6 +419,11 @@ function stopTimers() {
 // ── Sessions screen ───────────────────────────────────────────────
 
 async function showSessions() {
+  // Leaving a chat screen — let the relay release its live connection to
+  // this session right away instead of waiting out its idle timeout, so we
+  // don't keep holding a competing "driver" open against e.g. a terminal
+  // session longer than we're actually looking at it from the phone.
+  if (state.screen === 'chat' && state.sessionId) void releaseSession(state.sessionId)
   stopTimers()
   state.screen = 'sessions'
   state.sessionsLoading = true

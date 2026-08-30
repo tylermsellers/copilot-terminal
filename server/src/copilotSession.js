@@ -5,6 +5,19 @@ import { pushMessage } from "./store.js";
 
 /** @typedef {"idle"|"busy"} SessionState */
 
+// How long a session can sit with no phone/glasses activity (no polls, no
+// prompts, no responses) before the relay releases its live connection back.
+// A resumed session is a real second "driver" attached to the same
+// conversation as whatever else has it open (e.g. a `copilot` CLI session
+// running in a terminal) — the SDK/CLI only expects one active driver at a
+// time, so holding the connection open indefinitely after you've stopped
+// actively using it from the glasses/phone is what made it look like a
+// session got permanently "taken away" from the terminal even long after you
+// were done on the phone. Releasing it on idle hands control back; a later
+// prompt/poll from the phone just transparently resumes it again.
+const IDLE_RELEASE_MS = 90_000;
+const IDLE_SWEEP_INTERVAL_MS = 15_000;
+
 class Bridge {
   constructor() {
     this.client = new CopilotClient(); // uses locally logged-in `copilot` CLI auth by default
@@ -13,17 +26,43 @@ class Bridge {
     this.sessions = new Map();
     /** @type {Map<string, SessionState>} */
     this.state = new Map();
+    /** @type {Map<string, number>} last time this session saw phone/glasses activity */
+    this.lastActivity = new Map();
     /** @type {Map<string, (result: any) => void>} keyed by `${sessionId}:${requestId}` */
     this.pendingPermissions = new Map();
     /** @type {Map<string, (result: any) => void>} keyed by `${sessionId}:${requestId}` */
     this.pendingQuestions = new Map();
     this._requestSeq = 0;
+    this._idleSweepTimer = setInterval(() => void this.sweepIdleSessions(), IDLE_SWEEP_INTERVAL_MS);
+    this._idleSweepTimer.unref?.();
   }
 
   async ensureStarted() {
     if (this.started) return;
     await this.client.start();
     this.started = true;
+  }
+
+  /** Record that a session just saw real phone/glasses activity (poll, prompt, or response). */
+  touch(sessionId) {
+    if (sessionId) this.lastActivity.set(sessionId, Date.now());
+  }
+
+  /** Release any resumed/created session we're holding open that's gone idle. Never yanks a busy (mid-turn) session. */
+  async sweepIdleSessions() {
+    const now = Date.now();
+    for (const [sessionId, session] of [...this.sessions]) {
+      if (this.getState(sessionId) === "busy") continue;
+      const last = this.lastActivity.get(sessionId) ?? 0;
+      if (now - last < IDLE_RELEASE_MS) continue;
+      this.sessions.delete(sessionId);
+      this.lastActivity.delete(sessionId);
+      try {
+        await session.disconnect();
+      } catch {
+        // best-effort release — nothing to do if it's already gone
+      }
+    }
   }
 
   emit(sessionId, msg) {
@@ -79,6 +118,7 @@ class Bridge {
     });
     this.sessions.set(session.sessionId, session);
     this.setState(session.sessionId, "idle");
+    this.touch(session.sessionId);
     this.wireEvents(session);
     return session;
   }
@@ -88,7 +128,10 @@ class Bridge {
    * relay, by `copilot` in a terminal, or by any other Copilot CLI surface.
    * Safe to call on a session that is currently idle. If another live
    * process is actively mid-turn on the same session, sends may race —
-   * treat "one active driver at a time" as the current assumption.
+   * treat "one active driver at a time" as the current assumption. The
+   * connection is released automatically after IDLE_RELEASE_MS of no
+   * phone/glasses activity (see sweepIdleSessions), so briefly picking up
+   * someone else's session doesn't hold onto it forever afterward.
    */
   async resumeExisting(sessionId, cwd) {
     await this.ensureStarted();
@@ -100,6 +143,7 @@ class Bridge {
     });
     this.sessions.set(session.sessionId, session);
     this.setState(session.sessionId, "idle");
+    this.touch(session.sessionId);
     this.wireEvents(session);
     return session;
   }
@@ -156,6 +200,7 @@ class Bridge {
     } else if (!session) {
       session = await this.createSession(cwd);
     }
+    this.touch(session.sessionId);
     this.setState(session.sessionId, "busy");
     this.emit(session.sessionId, { type: "user_prompt", text });
     session.send(text).catch((err) => {
@@ -170,6 +215,7 @@ class Bridge {
     const resolve = this.pendingPermissions.get(key);
     if (!resolve) return false;
     this.pendingPermissions.delete(key);
+    this.touch(sessionId);
     const kind = decision === "deny" ? "reject" : decision === "session" ? "approve-for-session" : "approve-once";
     resolve({ kind });
     return true;
@@ -180,6 +226,7 @@ class Bridge {
     const resolve = this.pendingQuestions.get(key);
     if (!resolve) return false;
     this.pendingQuestions.delete(key);
+    this.touch(sessionId);
     resolve({ answer, wasFreeform: true });
     return true;
   }
@@ -187,7 +234,28 @@ class Bridge {
   interrupt(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
+    this.touch(sessionId);
     session.abort().catch(() => {});
+    return true;
+  }
+
+  /**
+   * Release our live connection to a session right away (e.g. the phone/
+   * glasses navigated back to the session list) instead of waiting for the
+   * idle sweep. Never yanks a session that's currently mid-turn — the
+   * caller can retry once it's idle, or just let the idle sweep pick it up.
+   */
+  async release(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return true;
+    if (this.getState(sessionId) === "busy") return false;
+    this.sessions.delete(sessionId);
+    this.lastActivity.delete(sessionId);
+    try {
+      await session.disconnect();
+    } catch {
+      // best-effort — nothing to do if it's already gone
+    }
     return true;
   }
 

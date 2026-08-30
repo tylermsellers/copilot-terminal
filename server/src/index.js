@@ -78,6 +78,7 @@ app.get("/api/messages", (req, res) => {
     res.status(400).json({ error: "Missing 'sessionId'" });
     return;
   }
+  bridge.touch(sessionId); // an actively-polled (open) chat screen counts as activity, not just sends
   res.json({
     messages: getMessages(sessionId, after),
     state: bridge.getState(sessionId),
@@ -121,6 +122,18 @@ app.post("/api/interrupt", (req, res) => {
     return;
   }
   res.json({ ok: bridge.interrupt(sessionId) });
+});
+
+// POST /api/sessions/:id/release — let go of our live connection to a
+// session now (called when the phone/glasses navigates back to the session
+// list) instead of waiting out the idle timeout. Best-effort; never yanks a
+// session that's currently mid-turn.
+app.post("/api/sessions/:id/release", async (req, res) => {
+  try {
+    res.json({ ok: await bridge.release(req.params.id) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // POST /api/transcribe?sampleRate=16000 — body is raw PCM16 mono bytes (or WAV if ?format=wav).

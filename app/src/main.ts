@@ -22,6 +22,7 @@ import {
   transcribe,
   loadRelayConfig,
   isRelayConfigured,
+  releaseSession,
   type SessionSummary,
 } from './api'
 import { renderPhoneApp } from './phoneApp'
@@ -745,6 +746,7 @@ async function handleEvent(event: EvenHubEvent) {
       return
     }
     if (state.mode === 'chat') {
+      if (state.sessionId) void releaseSession(state.sessionId)
       await showSessionPicker()
       return
     }
