@@ -138,7 +138,15 @@ export async function getHistory(sessionId: string, limit = 6): Promise<{ role: 
 export async function transcribe(pcm: Uint8Array, sampleRate = 16000): Promise<string> {
   const res = await fetch(`${relayUrl}/api/transcribe?sampleRate=${sampleRate}`, {
     method: 'POST',
-    headers: relayToken ? { 'x-relay-token': relayToken } : {},
+    // fetch() does not set a Content-Type for a raw Uint8Array/ArrayBuffer
+    // body on its own. Without one, the relay's express.raw() body parser
+    // never matches the request and silently leaves req.body empty --
+    // surfacing as "Missing audio body" even though real PCM bytes were
+    // sent over the wire. Must be set explicitly.
+    headers: {
+      ...(relayToken ? { 'x-relay-token': relayToken } : {}),
+      'Content-Type': 'application/octet-stream',
+    },
     body: pcm as unknown as BodyInit,
   })
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`)

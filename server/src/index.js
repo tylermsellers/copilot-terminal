@@ -123,8 +123,14 @@ app.post("/api/interrupt", (req, res) => {
   res.json({ ok: bridge.interrupt(sessionId) });
 });
 
-// POST /api/transcribe?sampleRate=16000 — body is raw PCM16 mono bytes (or WAV if ?format=wav)
-app.post("/api/transcribe", express.raw({ type: "*/*", limit: "10mb" }), async (req, res) => {
+// POST /api/transcribe?sampleRate=16000 — body is raw PCM16 mono bytes (or WAV if ?format=wav).
+// `type: () => true` always parses the body as a raw Buffer regardless of
+// (or missing) Content-Type -- some clients (e.g. fetch() with a
+// Uint8Array/ArrayBuffer body) don't set one, and express.raw()'s default
+// type matcher would then silently skip parsing, leaving req.body empty and
+// producing a false "Missing audio body" error even though real bytes were
+// sent over the wire.
+app.post("/api/transcribe", express.raw({ type: () => true, limit: "10mb" }), async (req, res) => {
   if (!req.body || !req.body.length) {
     res.status(400).json({ error: "Missing audio body" });
     return;
