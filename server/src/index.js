@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { bridge } from "./copilotSession.js";
-import { getMessages } from "./store.js";
+import { getMessages, getLatestId } from "./store.js";
 import { transcribePcm, activeProviderName, anyProviderConfigured } from "./transcribe.js";
 
 const app = express();
@@ -70,6 +70,21 @@ app.post("/api/prompt", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /api/messages/cursor?sessionId=... -> { lastId } — the current tip of
+// a session's message buffer. A client opening/reopening an existing
+// session seeds its poll cursor with this instead of 0, so it doesn't
+// replay whatever backlog the relay has buffered for that session since it
+// started (the initial view is already covered by the separate
+// /api/sessions/:id/history snapshot).
+app.get("/api/messages/cursor", (req, res) => {
+  const sessionId = req.query.sessionId;
+  if (!sessionId) {
+    res.status(400).json({ error: "Missing 'sessionId'" });
+    return;
+  }
+  res.json({ lastId: getLatestId(sessionId) });
 });
 
 app.get("/api/messages", (req, res) => {

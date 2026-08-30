@@ -20,6 +20,7 @@ import {
   respondQuestion,
   interrupt,
   getHistory,
+  getLatestMessageId,
   transcribe,
   loadRelayConfig,
   isRelayConfigured,
@@ -569,6 +570,15 @@ async function startChat() {
   // even before the optional history fetch below resolves (or times out).
   await renderChat(true)
   if (state.sessionId) {
+    // Seed the poll cursor at the buffer's current tip *before* fetching
+    // the visible history snapshot below, so startPolling()'s first tick
+    // only picks up messages that arrive from here on. Without this, a
+    // resumed session's poll cursor started at 0 and replayed the relay's
+    // entire buffered backlog (up to 500 messages accumulated since the
+    // relay started) on top of the history snapshot — burying the actual
+    // live tail under a wall of duplicate/old content that had to be
+    // scrolled through to reach.
+    state.lastMessageId = await getLatestMessageId(state.sessionId)
     try {
       const history = await withTimeout(getHistory(state.sessionId, 6), 4000)
       for (const turn of history) {

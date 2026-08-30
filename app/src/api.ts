@@ -147,6 +147,22 @@ export async function releaseSession(sessionId: string) {
   }
 }
 
+// Current tip of a session's server-side message buffer. Fetch this and
+// seed the poll cursor with it (instead of 0) when opening an *existing*
+// session, so the first poll doesn't replay the buffer's whole backlog —
+// the initial view already comes from getHistory() separately.
+export async function getLatestMessageId(sessionId: string): Promise<number> {
+  try {
+    const res = await fetch(`${relayUrl}/api/messages/cursor?sessionId=${encodeURIComponent(sessionId)}`, {
+      headers: headers(false),
+    })
+    const data = await res.json()
+    return typeof data.lastId === 'number' ? data.lastId : 0
+  } catch {
+    return 0
+  }
+}
+
 export async function getHistory(sessionId: string, limit = 6): Promise<{ role: 'user' | 'assistant'; text: string }[]> {
   const res = await fetch(`${relayUrl}/api/sessions/${encodeURIComponent(sessionId)}/history?limit=${limit}`, {
     headers: headers(false),

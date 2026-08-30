@@ -26,6 +26,7 @@ import {
   respondQuestion,
   interrupt,
   getHistory,
+  getLatestMessageId,
   checkHealth,
   getRelayUrl,
   getRelayToken,
@@ -598,6 +599,11 @@ async function openSession(sessionId: string | null, title: string) {
   state.busy = false
   renderChatScreen()
   if (sessionId) {
+    // Seed the poll cursor at the buffer's current tip first — see main.ts
+    // startChat() for the full rationale: without this, reopening an
+    // existing session replays the relay's entire buffered backlog on top
+    // of the history snapshot below.
+    state.lastMessageId = await getLatestMessageId(sessionId)
     try {
       const history = await getHistory(sessionId, 12)
       for (const turn of history) {
