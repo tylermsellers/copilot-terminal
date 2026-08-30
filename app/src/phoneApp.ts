@@ -300,6 +300,12 @@ const STYLE = `
     font-size: 13px;
     padding: 2px 4px 6px;
   }
+  .loading-row {
+    text-align: center;
+    color: var(--label-secondary);
+    font-size: 14px;
+    padding: 24px 12px;
+  }
   .dot-flash { display: inline-flex; gap: 3px; }
   .dot-flash span {
     width: 5px; height: 5px; border-radius: 50%;
@@ -427,6 +433,9 @@ const state = {
   sessionId: null as string | null,
   sessionTitle: 'New session',
   entries: [] as ChatEntry[],
+  // True while an existing session's history snapshot is being fetched —
+  // shown as a small loading row instead of a blank chat screen.
+  loadingHistory: false,
   lastMessageId: 0,
   busy: false,
   busySince: 0,
@@ -597,15 +606,18 @@ async function openSession(sessionId: string | null, title: string) {
   state.entries = []
   state.lastMessageId = 0
   state.busy = false
+  state.loadingHistory = !!sessionId
   renderChatScreen()
   if (sessionId) {
-    // Seed the poll cursor at the buffer's current tip first — see main.ts
-    // startChat() for the full rationale: without this, reopening an
-    // existing session replays the relay's entire buffered backlog on top
-    // of the history snapshot below.
-    state.lastMessageId = await getLatestMessageId(sessionId)
+    // Fetch the poll-cursor seed and the visible history snapshot in
+    // parallel — see main.ts startChat() for the full rationale on why the
+    // cursor is seeded from the buffer's current tip instead of 0.
+    const [latestId, history] = await Promise.all([
+      getLatestMessageId(sessionId),
+      getHistory(sessionId, 12).catch(() => [] as Awaited<ReturnType<typeof getHistory>>),
+    ])
+    state.lastMessageId = latestId
     try {
-      const history = await getHistory(sessionId, 12)
       for (const turn of history) {
         // Defensive filter alongside the server-side one — an empty-text
         // turn (e.g. a tool-only turn with no accompanying message) would
@@ -613,10 +625,12 @@ async function openSession(sessionId: string | null, title: string) {
         if (!turn.text.trim()) continue
         state.entries.push({ kind: turn.role === 'user' ? 'user' : 'assistant', text: turn.text })
       }
+      state.loadingHistory = false
       renderChatScreen()
     } catch {
       // best-effort context peek only
     }
+    state.loadingHistory = false
     startPolling()
   }
   startTicking()
@@ -761,7 +775,11 @@ function renderChatScreen(preserveScroll = false) {
     </div>
     <div class="content">
       <div class="chat-scroll" id="chatScroll">
-        ${state.entries.map((e, i) => entryHtml(e, i)).join('')}
+        ${
+          state.entries.length === 0 && state.loadingHistory
+            ? `<div class="loading-row">Loading conversation…</div>`
+            : state.entries.map((e, i) => entryHtml(e, i)).join('')
+        }
       </div>
     </div>
     ${state.busy ? `<div class="thinking-row" id="thinkingRow" style="padding-left:16px">Copilot is thinking <span class="dot-flash"><span></span><span></span><span></span></span></div>` : ''}

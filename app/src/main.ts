@@ -106,6 +106,10 @@ const state = {
   pickerScope: 'known' as 'known' | 'all',
   currentChoices: [] as string[],
   transcript: [] as TranscriptEntry[],
+  // True while an existing session's history snapshot is being fetched
+  // (between startChat()'s initial render and the history call resolving/
+  // timing out) — shown as a loading line instead of a blank transcript.
+  loadingHistory: false,
   // Count of newest transcript entries hidden below the current view when
   // the user has scrolled back to read older messages. 0 = live/auto-follow
   // the tail (default terminal behavior).
@@ -419,6 +423,7 @@ function anchorToLatestEntry() {
 // than the old per-entry one, so a response longer than one screen can be
 // scrolled through to its actual end instead of getting silently clipped.
 function renderTranscriptText(): string {
+  if (state.transcript.length === 0 && state.loadingHistory) return 'Loading conversation…'
   const allLines = flatTranscriptLines()
   const end = Math.max(0, allLines.length - state.transcriptScrollOffset)
   const start = Math.max(0, end - TRANSCRIPT_MAX_LINES)
@@ -566,21 +571,29 @@ async function startChat() {
   state.transcriptScrollOffset = 0
   state.userScrolledBack = false
   state.busy = false
+  state.loadingHistory = !!state.sessionId
   // Render immediately so a tap always produces instant visual feedback,
-  // even before the optional history fetch below resolves (or times out).
+  // even before the optional history fetch below resolves (or times out) —
+  // shows a "Loading conversation…" line rather than a blank transcript
+  // when opening an existing session.
   await renderChat(true)
   if (state.sessionId) {
-    // Seed the poll cursor at the buffer's current tip *before* fetching
-    // the visible history snapshot below, so startPolling()'s first tick
-    // only picks up messages that arrive from here on. Without this, a
-    // resumed session's poll cursor started at 0 and replayed the relay's
-    // entire buffered backlog (up to 500 messages accumulated since the
-    // relay started) on top of the history snapshot — burying the actual
-    // live tail under a wall of duplicate/old content that had to be
-    // scrolled through to reach.
-    state.lastMessageId = await getLatestMessageId(state.sessionId)
+    // Fetch the poll-cursor seed and the visible history snapshot in
+    // parallel (rather than sequentially) to minimize how long the loading
+    // line above stays up. Seeding the cursor at the buffer's current tip
+    // (instead of 0) means startPolling()'s first tick only picks up
+    // messages that arrive from here on — without this, a resumed
+    // session's poll cursor started at 0 and replayed the relay's entire
+    // buffered backlog (up to 500 messages accumulated since the relay
+    // started) on top of the history snapshot, burying the actual live
+    // tail under a wall of duplicate/old content that had to be scrolled
+    // through to reach.
+    const [latestId, history] = await Promise.all([
+      getLatestMessageId(state.sessionId),
+      withTimeout(getHistory(state.sessionId, 6), 4000).catch(() => [] as Awaited<ReturnType<typeof getHistory>>),
+    ])
+    state.lastMessageId = latestId
     try {
-      const history = await withTimeout(getHistory(state.sessionId, 6), 4000)
       for (const turn of history) {
         // Defensive filter alongside the server-side one — an empty-text
         // turn (e.g. a tool-only turn with no accompanying message) would
@@ -588,6 +601,7 @@ async function startChat() {
         if (!turn.text.trim()) continue
         state.transcript.push({ text: turn.text, kind: turn.role === 'user' ? 'user' : 'assistant' })
       }
+      state.loadingHistory = false
       // Use the in-place text-update path (not another full rebuild) here —
       // the containers already exist from the render above, and issuing a
       // second full createStartUpPageContainer/rebuildPageContainer within
