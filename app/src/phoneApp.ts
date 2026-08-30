@@ -88,7 +88,13 @@ const STYLE = `
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
     overscroll-behavior: none;
   }
-  #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+  #app {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 100%; /* fallback; overridden by JS to track window.visualViewport when the on-screen keyboard opens */
+    display: flex;
+    flex-direction: column;
+  }
 
   .navbar {
     flex: 0 0 auto;
@@ -430,10 +436,35 @@ const state = {
 
 let bridgeRef: EvenAppBridge
 
+// Keeps #app's height/position pinned to the *visible* viewport (which
+// shrinks when the on-screen keyboard opens) rather than the full window
+// (which the WebView host does not resize behind the keyboard). Without
+// this, the fixed input-bar/composer at the bottom of the chat screen sits
+// underneath the keyboard instead of just above it. Layout viewport height
+// (window.innerHeight) is left untouched — only this app root is resized,
+// so nothing else needs to change.
+let viewportHandlingInitialized = false
+function setupKeyboardAvoidance() {
+  if (viewportHandlingInitialized) return
+  viewportHandlingInitialized = true
+  const vv = window.visualViewport
+  if (!vv) return // fall back to the CSS height:100% default on hosts without VisualViewport support
+  const applyViewport = () => {
+    const appEl = document.getElementById('app')
+    if (!appEl) return
+    appEl.style.height = `${vv.height}px`
+    appEl.style.top = `${vv.offsetTop}px`
+  }
+  vv.addEventListener('resize', applyViewport)
+  vv.addEventListener('scroll', applyViewport)
+  applyViewport()
+}
+
 export async function renderPhoneApp(deps: PhoneAppDeps) {
   bridgeRef = deps.bridge
   injectStyleOnce()
   document.body.innerHTML = '<div id="app"></div>'
+  setupKeyboardAvoidance()
   if (!isRelayConfigured()) {
     state.settingsFirstRun = true
     renderSettingsScreen()
@@ -742,6 +773,14 @@ function renderChatScreen(preserveScroll = false) {
   composer.addEventListener('input', () => {
     composer.style.height = 'auto'
     composer.style.height = `${Math.min(composer.scrollHeight, 120)}px`
+  })
+  // Defensive fallback alongside setupKeyboardAvoidance's visualViewport
+  // handling: some Android WebViews fire the keyboard-open resize a beat
+  // after focus, briefly leaving the composer under the keyboard. Scrolling
+  // it into view on focus (once the keyboard has had a moment to animate
+  // in) keeps it visible regardless of that timing.
+  composer.addEventListener('focus', () => {
+    setTimeout(() => composer.scrollIntoView({ block: 'end' }), 300)
   })
   composer.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' && !ev.shiftKey) {

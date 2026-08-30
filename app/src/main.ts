@@ -61,6 +61,17 @@ const FOOTER_H = 27 + 2 * INSET // exactly one line
 const TRANSCRIPT_H = 288 - FOOTER_H
 const TRANSCRIPT_MAX_LINES = Math.floor((TRANSCRIPT_H - 2 * INSET) / 27)
 
+// ── Voice activity detection (VAD) auto-stop ───────────────────────
+// Inspired by even-voice-shim/tmux-on-g2's RMS-based silence detection:
+// rather than requiring a second manual tap to stop recording, watch the
+// PCM stream itself and auto-stop once the user has spoken and then gone
+// quiet for a bit. A manual tap (see onFooterTap) still works as a
+// fallback/override at any time.
+const VAD_RMS_THRESHOLD = 500 // int16 RMS above this counts as "speech" (empirically quiet room vs. speech)
+const VAD_SILENCE_MS = 1200 // stop this long after the last detected speech
+const VAD_CHECK_INTERVAL_MS = 200
+const VAD_MAX_RECORDING_MS = 30_000 // hard safety cap regardless of VAD (e.g. noisy environment)
+
 type Mode = 'picker' | 'chat' | 'choice' | 'interrupt_confirm' | 'voice_compose'
 type PendingChoice =
   | { kind: 'permission'; requestId: string }
@@ -105,6 +116,10 @@ const state = {
   voiceDraft: '',
   pollTimer: undefined as ReturnType<typeof setInterval> | undefined,
   tickTimer: undefined as ReturnType<typeof setInterval> | undefined,
+  // VAD (voice activity detection) auto-stop bookkeeping — see beginRecording.
+  vadTimer: undefined as ReturnType<typeof setInterval> | undefined,
+  vadLastVoiceAt: 0,
+  vadSpeechDetected: false,
 }
 
 let bridge: Awaited<ReturnType<typeof waitForEvenAppBridge>>
@@ -646,6 +661,8 @@ async function beginRecording() {
   state.audioChunks = []
   state.recording = true
   state.recordingStartedAt = Date.now()
+  state.vadLastVoiceAt = Date.now()
+  state.vadSpeechDetected = false
   await renderChat()
   const ok = await bridge.audioControl(true, AudioInputSource.Glasses)
   if (!ok) {
@@ -659,11 +676,59 @@ async function beginRecording() {
       kind: 'error',
     })
     await renderChat(true)
+    return
   }
+  startVadWatch()
+}
+
+function stopVadWatch() {
+  if (state.vadTimer) clearInterval(state.vadTimer)
+  state.vadTimer = undefined
+}
+
+function startVadWatch() {
+  stopVadWatch()
+  state.vadTimer = setInterval(() => {
+    if (!state.recording) {
+      stopVadWatch()
+      return
+    }
+    const now = Date.now()
+    const heldMs = now - state.recordingStartedAt
+    const silentMs = now - state.vadLastVoiceAt
+    // Only auto-stop on silence once the user has actually said something —
+    // otherwise a slow start to speaking would get cut off before it began.
+    // MIN_RECORDING_MS-equivalent guard against the same spurious-double-tap
+    // start race that the manual stop path guards against.
+    const pastMinHold = heldMs >= 600
+    if (pastMinHold && ((state.vadSpeechDetected && silentMs >= VAD_SILENCE_MS) || heldMs >= VAD_MAX_RECORDING_MS)) {
+      stopVadWatch()
+      void stopRecordingAndSend()
+    }
+  }, VAD_CHECK_INTERVAL_MS)
+}
+
+// Computes RMS (root-mean-square) amplitude of 16-bit signed little-endian
+// PCM audio, used to detect speech vs. silence for VAD auto-stop. Reads two
+// bytes at a time rather than casting to Int16Array to avoid any assumption
+// about the underlying buffer's byte alignment/offset.
+function pcmRms(pcm: Uint8Array): number {
+  const sampleCount = Math.floor(pcm.length / 2)
+  if (sampleCount === 0) return 0
+  let sumSquares = 0
+  for (let i = 0; i < sampleCount; i++) {
+    const lo = pcm[i * 2]
+    const hi = pcm[i * 2 + 1]
+    let sample = (hi << 8) | lo
+    if (sample >= 0x8000) sample -= 0x10000 // sign-extend to int16
+    sumSquares += sample * sample
+  }
+  return Math.sqrt(sumSquares / sampleCount)
 }
 
 async function stopRecordingAndSend() {
   state.recording = false
+  stopVadWatch()
   await bridge.audioControl(false)
   await renderChat()
 
@@ -767,6 +832,10 @@ async function handleEvent(event: EvenHubEvent) {
 
   if (audio && state.recording) {
     state.audioChunks.push(audio.audioPcm)
+    if (pcmRms(audio.audioPcm) >= VAD_RMS_THRESHOLD) {
+      state.vadLastVoiceAt = Date.now()
+      state.vadSpeechDetected = true
+    }
     return
   }
 
