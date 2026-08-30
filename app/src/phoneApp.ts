@@ -41,44 +41,62 @@ export interface PhoneAppDeps {
   bridge: EvenAppBridge
 }
 
+// ── Even Hub official iconography ────────────────────────────────────
+// Inline pixel-style SVGs sourced from the official Even Hub APP design
+// guidelines (github.com/JustinasLa/evenhub-app-ui, "Guide System" /
+// "Edit & Settings Icons" categories) instead of Unicode glyphs — its
+// iconography rule flags font-rendered symbols (‹ › + ⚙︎ etc.) as
+// anti-aliased and off-brand for the pixel grid. `fill` is rewritten to
+// `currentColor` (the source files hardcode #232323) so each icon inherits
+// whatever color its containing element already uses, which keeps them
+// working correctly against our dark theme without a second icon set.
+function icon(pathD: string, size = 16, extraClass = ''): string {
+  return `<svg class="ehicon${extraClass ? ' ' + extraClass : ''}" width="${size}" height="${size}" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="${pathD}" fill="currentColor"/></svg>`
+}
+
+// Guide System/Back.svg — full back-arrow, for the sessions-list back button.
+const ICON_BACK_D =
+  'M16 29H14V27H16V29ZM14 27H12V25H14V27ZM12 25H10V23H12V25ZM10 23H8V21H10V23ZM8 21H6V19H8V21ZM6 19H4V17H6V19ZM4 15V17H2V15H4ZM30 17H6V15H30V17ZM6 15H4V13H6V15ZM8 13H6V11H8V13ZM10 11H8V9H10V11ZM12 9H10V7H12V9ZM14 7H12V5H14V7ZM16 5H14V3H16V5Z'
+// Guide System/Go.svg — rightward arrow ("direction, A to B"); rotated -90deg
+// via .send-icon for the send button, matching the previous ↑ affordance.
+const ICON_GO_D =
+  'M18 29H16V27H18V29ZM20 27H18V25H20V27ZM22 25H20V23H22V25ZM24 23H22V21H24V23ZM26 21H24V19H26V21ZM28 19H26V17H28V19ZM26 17H2V15H26V17ZM30 15V17H28V15H30ZM28 15H26V13H28V15ZM26 13H24V11H26V13ZM24 11H22V9H24V11ZM22 9H20V7H22V9ZM20 7H18V5H20V7ZM18 5H16V3H18V5Z'
+// Edit & Settings Icons/Settings.svg
+const ICON_SETTINGS_D =
+  'M25 28H21V26H25V28ZM21 26H3V24H21V26ZM29 26H25V24H29V26ZM25 24H21V22H25V24ZM18 19H14V17H18V19ZM14 17H3V15H14V17ZM29 17H18V15H29V17ZM18 15H14V13H18V15ZM11 10H7V8H11V10ZM7 8H3V6H7V8ZM29 8H11V6H29V8ZM11 6H7V4H11V6Z'
+// Guide System/Chevron - Drill-in.svg — small trailing chevron for list rows.
+const ICON_CHEVRON_DRILL_IN_D =
+  'M11 29H9V27H11V29ZM13 27H11V25H13V27ZM15 25H13V23H15V25ZM17 23H15V21H17V23ZM19 21H17V19H19V21ZM21 19H19V17H21V19ZM23 15V17H21V15H23ZM21 15H19V13H21V15ZM19 13H17V11H19V13ZM17 11H15V9H17V11ZM15 9H13V7H15V9ZM13 7H11V5H13V7ZM11 5H9V3H11V5Z'
+// Edit & Settings Icons/Add.svg — 4 rects forming a plus, not a single path.
+const ICON_ADD_SVG =
+  '<svg class="ehicon" width="14" height="14" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="15" y="4" width="2" height="10" fill="currentColor"/><rect x="5" y="16" width="2" height="10" transform="rotate(-90 5 16)" fill="currentColor"/><rect x="17" y="26" width="2" height="10" transform="rotate(-180 17 26)" fill="currentColor"/><rect x="27" y="14" width="2" height="10" transform="rotate(90 27 14)" fill="currentColor"/></svg>'
+
 // ── Design system ───────────────────────────────────────────────────
 
 const STYLE = `
   :root {
-    color-scheme: dark light;
-    /* GitHub Copilot–style dark theme (primer dark palette + Copilot purple) */
-    --bg: #0d1117;
-    --bg-elevated: #161b22;
-    --bar-bg: rgba(13,17,23,0.85);
-    --label: #e6edf3;
-    --label-secondary: #7d8590;
-    --separator: #30363d;
-    --fill-secondary: rgba(139,148,158,0.16);
-    --accent: #a371f7;
-    --accent-strong: #8957e5;
-    --accent-contrast: #FFFFFF;
-    --green: #3fb950;
-    --red: #f85149;
+    color-scheme: light;
+    /* Official Even Hub APP design tokens (evenhub-app-ui skill / Even OS
+       2.0 companion-app guidelines) — see references/app-guidelines.md.
+       Naming here keeps our existing --bg/--accent/etc. variable names so
+       the rest of this file's CSS doesn't need touching, but every value
+       below is now a real token, not an invented palette. */
+    --bg: #EEEEEE;              /* BC-3rd — page background */
+    --bg-elevated: #FFFFFF;     /* BC-1st — cards / standard buttons */
+    --bar-bg: rgba(255,255,255,0.85);
+    --label: #232323;           /* TC-1st */
+    --label-secondary: #7B7B7B; /* TC-2nd */
+    --separator: #E4E4E4;       /* BC-4th — deeper layer / dividers */
+    --fill-secondary: rgba(35,35,35,0.08); /* SC-2nd — 8% #232323 */
+    --accent: #232323;          /* TC-Accent / BC-Highlight */
+    --accent-strong: #232323;
+    --accent-contrast: #FFFFFF; /* TC-Highlight */
+    --highlight: #FEF991;       /* BC-Accent — ongoing-action / warning cards */
+    --green: #4BB956;           /* TC-Green — connection status */
+    --red: #FF453A;             /* TC-Red */
     --bubble-user-text: #FFFFFF;
-    --bubble-assistant: var(--bg-elevated);
-    --bubble-assistant-text: var(--label);
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #ffffff;
-      --bg-elevated: #f6f8fa;
-      --bar-bg: rgba(255,255,255,0.85);
-      --label: #1f2328;
-      --label-secondary: #656d76;
-      --separator: #d0d7de;
-      --fill-secondary: rgba(175,184,193,0.24);
-      --accent: #8250df;
-      --accent-strong: #6639ba;
-      --green: #1a7f37;
-      --red: #cf222e;
-      --bubble-assistant: var(--bg-elevated);
-      --bubble-assistant-text: #1f2328;
-    }
+    --bubble-assistant: #F6F6F6; /* BC-2nd */
+    --bubble-assistant-text: #232323;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; }
@@ -142,15 +160,17 @@ const STYLE = `
   }
   .nav-btn:disabled { opacity: 0.4; }
   .nav-btn.icon { font-size: 20px; padding: 4px 8px; }
+  .ehicon { display: inline-block; flex: 0 0 auto; vertical-align: middle; }
+  .send-icon { transform: rotate(-90deg); }
 
   .content { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
   /* ── Sessions list ─────────────────────────────────────────── */
-  .list-section { margin: 20px 16px; }
+  .list-section { margin: 20px 12px; }
   .list-group {
     background: var(--bg-elevated);
     border: 1px solid var(--separator);
-    border-radius: 12px;
+    border-radius: 6px;
     overflow: hidden;
   }
   .list-row {
@@ -180,7 +200,7 @@ const STYLE = `
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .chevron { color: var(--separator); font-size: 15px; flex: 0 0 auto; }
+  .chevron { color: var(--separator); flex: 0 0 auto; display: flex; align-items: center; }
   .empty-state {
     text-align: center;
     color: var(--label-secondary);
@@ -257,8 +277,8 @@ const STYLE = `
   .action-card {
     background: var(--bg-elevated);
     border: 1px solid var(--separator);
-    border-radius: 14px;
-    padding: 12px 14px;
+    border-radius: 6px;
+    padding: 16px;
     max-width: 88%;
     align-self: center;
     width: 100%;
@@ -267,7 +287,7 @@ const STYLE = `
   .action-card .buttons { display: flex; flex-direction: column; gap: 8px; }
   .action-btn {
     padding: 10px 12px;
-    border-radius: 10px;
+    border-radius: 6px;
     border: none;
     background: var(--fill-secondary);
     color: var(--label);
@@ -370,7 +390,7 @@ const STYLE = `
   .field input {
     width: 100%;
     padding: 12px 14px;
-    border-radius: 12px;
+    border-radius: 6px;
     border: 1px solid var(--separator);
     background: var(--fill-secondary);
     color: var(--label);
@@ -382,7 +402,7 @@ const STYLE = `
   .btn {
     flex: 1;
     padding: 13px 16px;
-    border-radius: 12px;
+    border-radius: 6px;
     border: none;
     font-size: 16px;
     font-weight: 600;
@@ -395,7 +415,7 @@ const STYLE = `
   .status-box {
     margin-top: 16px;
     padding: 12px 14px;
-    border-radius: 12px;
+    border-radius: 6px;
     background: var(--fill-secondary);
     font-size: 13px;
     color: var(--label-secondary);
@@ -534,14 +554,14 @@ function renderSessionsScreen() {
       <div class="navbar-side"></div>
       <div class="navbar-title">Copilot Terminal</div>
       <div class="navbar-side right">
-        <button class="nav-btn icon" id="settingsBtn" title="Settings">⚙︎</button>
+        <button class="nav-btn icon" id="settingsBtn" title="Settings">${icon(ICON_SETTINGS_D, 20)}</button>
       </div>
     </div>
     <div class="content">
       <div class="list-section">
         <div class="list-group">
           <div class="new-session-btn" id="newSessionBtn">
-            <span class="plus-badge">+</span>
+            <span class="plus-badge">${ICON_ADD_SVG}</span>
             <span>New session</span>
           </div>
         </div>
@@ -583,7 +603,7 @@ function renderSessionsScreen() {
             <div class="list-row-title">${escapeHtml(s.title || '(untitled)')}</div>
             <div class="list-row-sub">${escapeHtml(relativeTime(s.timestamp))}</div>
           </div>
-          <div class="chevron">›</div>
+          <div class="chevron">${icon(ICON_CHEVRON_DRILL_IN_D, 14)}</div>
         </div>`
     )
     .join('')}</div>`
@@ -743,7 +763,7 @@ function entryHtml(e: ChatEntry, idx: number): string {
           </div>
           <div class="custom-answer">
             <input type="text" placeholder="Type your own answer…" data-custom-for="${idx}" />
-            <button class="send-btn" data-custom-send="${idx}">↑</button>
+            <button class="send-btn" data-custom-send="${idx}">${icon(ICON_GO_D, 16, 'send-icon')}</button>
           </div>
         </div>`
   }
@@ -766,7 +786,7 @@ function renderChatScreen(preserveScroll = false) {
   app().innerHTML = `
     <div class="navbar">
       <div class="navbar-side">
-        <button class="nav-btn" id="backBtn">‹ Sessions</button>
+        <button class="nav-btn" id="backBtn">${icon(ICON_BACK_D, 16)} Sessions</button>
       </div>
       <div class="navbar-title">${escapeHtml(state.sessionTitle)}</div>
       <div class="navbar-side right">
@@ -785,7 +805,7 @@ function renderChatScreen(preserveScroll = false) {
     ${state.busy ? `<div class="thinking-row" id="thinkingRow" style="padding-left:16px">Copilot is thinking <span class="dot-flash"><span></span><span></span><span></span></span></div>` : ''}
     <div class="input-bar">
       <textarea id="composer" rows="1" placeholder="Message Copilot…"></textarea>
-      <button class="send-btn" id="sendBtn">↑</button>
+      <button class="send-btn" id="sendBtn">${icon(ICON_GO_D, 16, 'send-icon')}</button>
     </div>
   `
   document.getElementById('backBtn')!.addEventListener('click', () => {
@@ -920,7 +940,7 @@ function renderSettingsScreen() {
   app().innerHTML = `
     <div class="navbar">
       <div class="navbar-side">
-        ${firstRun ? '' : `<button class="nav-btn" id="settingsBackBtn">‹ Sessions</button>`}
+        ${firstRun ? '' : `<button class="nav-btn" id="settingsBackBtn">${icon(ICON_BACK_D, 16)} Sessions</button>`}
       </div>
       <div class="navbar-title">Settings</div>
       <div class="navbar-side right"></div>
