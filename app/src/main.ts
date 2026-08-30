@@ -425,9 +425,9 @@ function renderTranscriptText(): string {
 }
 
 function footerText(): string {
-  if (state.busy) {
+  if (state.busy && !state.recording) {
     const elapsed = Math.max(0, Math.floor((Date.now() - state.busySince) / 1000))
-    return `Thinking… ${elapsed}s`
+    return `Thinking… ${elapsed}s   ● ask more   ●● stop`
   }
   if (state.recording) return 'Recording… ● stop'
   if (state.transcriptScrollOffset > 0) return '▼ scroll down for more'
@@ -735,11 +735,11 @@ async function onFooterTap() {
   // was scrolled back reading history) before acting on the tap itself.
   state.transcriptScrollOffset = 0
   state.userScrolledBack = false
-  if (state.busy) {
-    await showChoices('Stop agent response?', ['Yes', 'Cancel'])
-    state.mode = 'interrupt_confirm'
-    return
-  }
+  // Recording (and sending) a new voice prompt is now always available,
+  // even while a previous response is still in flight — matching how the
+  // CLI and the phone app's chat composer already let you queue up another
+  // message without waiting for or stopping the current one. To still
+  // interrupt a busy response, double-tap instead (see handleEvent).
   if (!state.recording) {
     state.voiceOrigin = 'chat'
     state.voiceTarget = { kind: 'prompt' }
@@ -972,6 +972,18 @@ async function handleEvent(event: EvenHubEvent) {
       return
     }
     if (state.mode === 'chat') {
+      if (state.busy) {
+        // Single-tap now always starts a new (queued) recording instead of
+        // blocking on a stop confirmation — see onFooterTap. Double-tap
+        // takes over as the explicit "interrupt the in-flight response"
+        // gesture instead of its usual exit-to-picker action, so there's
+        // still a way to abort a response without leaving the session.
+        state.transcriptScrollOffset = 0
+        state.userScrolledBack = false
+        await showChoices('Stop agent response?', ['Yes', 'Cancel'])
+        state.mode = 'interrupt_confirm'
+        return
+      }
       if (state.sessionId) void releaseSession(state.sessionId)
       await showSessionPicker()
       return
