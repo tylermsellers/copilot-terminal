@@ -80,6 +80,9 @@ const state = {
   busySince: 0,
   recording: false,
   audioChunks: [] as Uint8Array[],
+  // Timestamp recording actually started (audioControl confirmed) — used to
+  // debounce a spurious near-instant second tap event (see onFooterTap).
+  recordingStartedAt: 0,
   pickerSessions: [] as SessionSummary[],
   // Set when the picker is showing a fallback (connection error / setup-
   // required) screen with a single "Retry"-style choice, so onPickerSelect
@@ -581,6 +584,15 @@ async function onFooterTap() {
     state.voiceTarget = { kind: 'prompt' }
     await beginRecording()
   } else {
+    // Touch hardware can report a single physical tap as two raw events in
+    // quick succession (press + release). Since a tap on this same
+    // full-screen container both starts AND stops recording, a spurious
+    // second event arriving within a moment of starting would immediately
+    // stop recording again before any audio has streamed, always sending
+    // zero bytes. Ignore a "stop" this soon after "start" — real usage
+    // always takes at least this long to actually say something.
+    const MIN_RECORDING_MS = 600
+    if (Date.now() - state.recordingStartedAt < MIN_RECORDING_MS) return
     await stopRecordingAndSend()
   }
 }
@@ -599,6 +611,7 @@ async function onInterruptConfirmSelect(index: number) {
 async function beginRecording() {
   state.audioChunks = []
   state.recording = true
+  state.recordingStartedAt = Date.now()
   await renderChat()
   const ok = await bridge.audioControl(true, AudioInputSource.Glasses)
   if (!ok) {
@@ -633,8 +646,12 @@ async function stopRecordingAndSend() {
     // Fail fast client-side instead of round-tripping an empty body to the
     // relay, which only reports the generic "Missing audio body" — this is
     // almost always a mic-permission/start failure, not a network issue.
+    // Include the recording duration so a persistent failure here points
+    // at an actual streaming problem (e.g. firmware not delivering
+    // audioEvent at all) rather than a too-quick stop.
+    const heldMs = Date.now() - state.recordingStartedAt
     state.transcript.push({
-      text: 'No audio captured — check microphone permission, or try holding a bit longer before stopping.',
+      text: `No audio captured (held ${heldMs}ms, 0 chunks) — check mic permission, or the glasses may not be streaming audio.`,
       kind: 'error',
     })
     await renderChat(true)
