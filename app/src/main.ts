@@ -680,8 +680,17 @@ async function handleEvent(event: EvenHubEvent) {
 
   // A full-screen single text container reports taps as a raw sysEvent
   // (touchpad touch), not a textEvent — confirmed against the Even Hub
-  // simulator. Missing eventType means a plain single tap.
-  if (state.mode === 'chat' && (sys || text)) {
+  // simulator. Missing eventType means a plain single tap, but this
+  // container also receives scroll gestures (SCROLL_TOP_EVENT /
+  // SCROLL_BOTTOM_EVENT) and other lifecycle sysEvents on real hardware —
+  // those must NOT be treated as a tap, or scrolling the transcript
+  // unintentionally toggles voice recording (seen as a spurious "missing
+  // audio body" transcription failure when the untouched mic is stopped).
+  if (
+    state.mode === 'chat' &&
+    (sys || text) &&
+    (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)
+  ) {
     await onFooterTap()
     return
   }
