@@ -87,6 +87,10 @@ const state = {
   pickerFallback: null as null | 'error' | 'setup',
   currentChoices: [] as string[],
   transcript: [] as TranscriptEntry[],
+  // Count of newest transcript entries hidden below the current view when
+  // the user has scrolled back to read older messages. 0 = live/auto-follow
+  // the tail (default terminal behavior).
+  transcriptScrollOffset: 0,
   // Restore point for the choice screen we came from, so voice-compose Cancel
   // can put the user back exactly where they were.
   choiceHeader: '',
@@ -150,7 +154,11 @@ function chatContainers(transcriptText: string, footerText: string) {
         containerID: TRANSCRIPT_ID,
         containerName: 'transcript',
         content: transcriptText,
-        isEventCapture: 0,
+        // Event capture lives here (not on the footer) so scroll gestures
+        // (SCROLL_TOP_EVENT/SCROLL_BOTTOM_EVENT) target the transcript and
+        // can page through history — only one container per page may
+        // capture events, so tap-to-record is also routed through here.
+        isEventCapture: 1,
       }),
       new TextContainerProperty({
         xPosition: 0,
@@ -163,7 +171,7 @@ function chatContainers(transcriptText: string, footerText: string) {
         containerID: FOOTER_ID,
         containerName: 'footer',
         content: footerText,
-        isEventCapture: 1,
+        isEventCapture: 0,
       }),
     ],
   })
@@ -273,12 +281,19 @@ function entryDisplayText(e: TranscriptEntry): string {
 
 // Keep only as many trailing transcript entries as fit TRANSCRIPT_MAX_LINES,
 // using pixel-accurate wrapping so the log behaves like an auto-scrolling
-// terminal (oldest lines fall off the top).
+// terminal (oldest lines fall off the top). `transcriptScrollOffset` hides
+// that many of the newest entries first, so scrolling back pages through
+// older history without disturbing what's currently on screen when new
+// messages arrive while scrolled back.
 function renderTranscriptText(): string {
+  const visible =
+    state.transcriptScrollOffset > 0
+      ? state.transcript.slice(0, Math.max(0, state.transcript.length - state.transcriptScrollOffset))
+      : state.transcript
   const kept: string[] = []
   let lines = 0
-  for (let i = state.transcript.length - 1; i >= 0; i--) {
-    const display = entryDisplayText(state.transcript[i])
+  for (let i = visible.length - 1; i >= 0; i--) {
+    const display = entryDisplayText(visible[i])
     const wrapped = measureTextWrap(display, INNER_W).lineCount
     if (lines + wrapped > TRANSCRIPT_MAX_LINES && kept.length > 0) break
     kept.unshift(display)
@@ -294,7 +309,8 @@ function footerText(): string {
     return `Thinking… ${elapsed}s`
   }
   if (state.recording) return 'Recording… ● stop'
-  return '● record   ●● sessions'
+  if (state.transcriptScrollOffset > 0) return '▲ scrolled back — scroll down for latest'
+  return '● record   ●● sessions   ▲▼ scroll'
 }
 
 async function renderChat(fullRebuild = false) {
@@ -418,6 +434,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 async function startChat() {
   state.lastMessageId = 0
   state.transcript = []
+  state.transcriptScrollOffset = 0
   state.busy = false
   // Render immediately so a tap always produces instant visual feedback,
   // even before the optional history fetch below resolves (or times out).
@@ -545,6 +562,9 @@ async function onChoiceSelect(index: number) {
 // ── Interrupt confirm ───────────────────────────────────────────
 
 async function onFooterTap() {
+  // Any tap on the chat screen returns the view to live (in case the user
+  // was scrolled back reading history) before acting on the tap itself.
+  state.transcriptScrollOffset = 0
   if (state.busy) {
     await showChoices('Stop agent response?', ['Yes', 'Cancel'])
     state.mode = 'interrupt_confirm'
@@ -682,16 +702,28 @@ async function handleEvent(event: EvenHubEvent) {
   // (touchpad touch), not a textEvent — confirmed against the Even Hub
   // simulator. Missing eventType means a plain single tap, but this
   // container also receives scroll gestures (SCROLL_TOP_EVENT /
-  // SCROLL_BOTTOM_EVENT) and other lifecycle sysEvents on real hardware —
-  // those must NOT be treated as a tap, or scrolling the transcript
-  // unintentionally toggles voice recording (seen as a spurious "missing
-  // audio body" transcription failure when the untouched mic is stopped).
-  if (
-    state.mode === 'chat' &&
-    (sys || text) &&
-    (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT)
-  ) {
-    await onFooterTap()
+  // SCROLL_BOTTOM_EVENT) — page through transcript history on those
+  // instead of treating them as a tap (which previously misfired as
+  // toggling voice recording, seen as a spurious "missing audio body"
+  // transcription failure when the untouched mic was immediately stopped).
+  if (state.mode === 'chat' && (sys || text)) {
+    if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
+      const maxOffset = Math.max(0, state.transcript.length - 1)
+      state.transcriptScrollOffset = Math.min(maxOffset, state.transcriptScrollOffset + 3)
+      await renderChat(false)
+      return
+    }
+    if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+      state.transcriptScrollOffset = Math.max(0, state.transcriptScrollOffset - 3)
+      await renderChat(false)
+      return
+    }
+    if (eventType === undefined || eventType === OsEventTypeList.CLICK_EVENT) {
+      await onFooterTap()
+      return
+    }
+    // Any other lifecycle sysEvent (foreground enter/exit, IMU, etc.) on
+    // this container is not something the chat screen reacts to.
     return
   }
 
