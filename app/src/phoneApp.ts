@@ -86,9 +86,9 @@ const STYLE = `
 
   .navbar {
     flex: 0 0 auto;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(44px, auto) 1fr minmax(44px, auto);
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
     padding: max(10px, env(safe-area-inset-top)) 8px 10px;
     background: var(--bar-bg);
@@ -99,8 +99,7 @@ const STYLE = `
     z-index: 2;
   }
   .navbar-title {
-    position: absolute;
-    left: 76px; right: 76px;
+    min-width: 0;
     text-align: center;
     font-size: 17px;
     font-weight: 600;
