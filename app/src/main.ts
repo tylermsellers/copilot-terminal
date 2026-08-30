@@ -109,6 +109,11 @@ const state = {
   // the user has scrolled back to read older messages. 0 = live/auto-follow
   // the tail (default terminal behavior).
   transcriptScrollOffset: 0,
+  // True once the user manually scrolls back through history (distinct
+  // from transcriptScrollOffset, which can also be nonzero just from
+  // anchorToLatestEntry() pinning a long reply's top on-screen) — used to
+  // decide whether a finished reply deserves an attention chime.
+  userScrolledBack: false,
   // Restore point for the choice screen we came from, so voice-compose Cancel
   // can put the user back exactly where they were.
   choiceHeader: '',
@@ -370,10 +375,42 @@ function wrapLines(text: string, maxWidth: number): string[] {
 // single screenful.
 function flatTranscriptLines(): string[] {
   const out: string[] = []
-  for (const entry of state.transcript) {
+  state.transcript.forEach((entry, i) => {
+    // Blank separator line between entries (not before the first) so
+    // consecutive turns don't visually run together on the small HUD.
+    if (i > 0) out.push('')
     out.push(...wrapLines(entryDisplayText(entry), INNER_W))
-  }
+  })
   return out
+}
+
+// Line index (within flatTranscriptLines()) where a given transcript entry
+// index begins, accounting for the blank separator lines above.
+function entryStartLine(entryIndex: number): number {
+  let line = 0
+  for (let i = 0; i < entryIndex; i++) {
+    if (i > 0) line += 1 // separator
+    line += wrapLines(entryDisplayText(state.transcript[i]), INNER_W).length
+  }
+  if (entryIndex > 0) line += 1 // separator before this entry
+  return line
+}
+
+// Anchors the transcript view so the most recently added entry's own first
+// line is at the top of the visible window, rather than always showing the
+// live tail — a response longer than one screenful was otherwise pushed
+// mostly (or entirely) off the top, so the HUD opened mid-answer instead of
+// at its start. Falls back to the live tail (offset 0) when the new entry
+// fits within one screenful anyway, since that already shows it in full.
+function anchorToLatestEntry() {
+  const n = state.transcript.length
+  if (n === 0) {
+    state.transcriptScrollOffset = 0
+    return
+  }
+  const start = entryStartLine(n - 1)
+  const allLines = flatTranscriptLines()
+  state.transcriptScrollOffset = Math.max(0, allLines.length - start - TRANSCRIPT_MAX_LINES)
 }
 
 // Windows the flattened line list so the newest `transcriptScrollOffset`
@@ -394,7 +431,7 @@ function footerText(): string {
     return `Thinking… ${elapsed}s`
   }
   if (state.recording) return 'Recording… ● stop'
-  if (state.transcriptScrollOffset > 0) return '▲ scrolled back — scroll down for latest'
+  if (state.transcriptScrollOffset > 0) return '▼ scroll down for more'
   return '● reply   ●● sessions   ▲▼ scroll'
 }
 
@@ -527,6 +564,7 @@ async function startChat() {
   state.lastMessageId = 0
   state.transcript = []
   state.transcriptScrollOffset = 0
+  state.userScrolledBack = false
   state.busy = false
   // Render immediately so a tap always produces instant visual feedback,
   // even before the optional history fetch below resolves (or times out).
@@ -592,14 +630,15 @@ async function handleMessage(msg: any) {
       state.busy = msg.state === 'busy'
       if (state.busy) state.busySince = Date.now()
       // Flash a notification popup when a reply finishes arriving while the
-      // user has scrolled back through history (transcriptScrollOffset > 0)
-      // — i.e. they're not currently looking at the live tail and could
-      // easily miss that something new showed up. Skipped while already
-      // watching the tail live, since the transcript update itself is
-      // enough of a cue there. even-notifications only ships generic
-      // pre-baked templates (no per-call custom text) as of v1.0.1, so this
-      // is a plain attention chime, not a content preview.
-      if (wasBusy && !state.busy && state.mode === 'chat' && state.transcriptScrollOffset > 0) {
+      // user has manually scrolled back through history — i.e. they're not
+      // currently looking at the live tail and could easily miss that
+      // something new showed up. Skipped while watching the tail live
+      // (even if anchorToLatestEntry() has pinned a long reply's own top
+      // on-screen, which also leaves transcriptScrollOffset > 0 but isn't
+      // the user having wandered off). even-notifications only ships
+      // generic pre-baked templates (no per-call custom text) as of
+      // v1.0.1, so this is a plain attention chime, not a content preview.
+      if (wasBusy && !state.busy && state.mode === 'chat' && state.userScrolledBack) {
         evenNotification('incoming-email', { durationMs: 4000 })
       }
       if (state.mode === 'chat') await renderChat()
@@ -607,7 +646,12 @@ async function handleMessage(msg: any) {
     }
     case 'assistant_message':
       if (msg.text) {
+        const wasAtTail = state.transcriptScrollOffset === 0
         state.transcript.push({ text: msg.text, kind: 'assistant' })
+        // Only auto-anchor to the top of this new reply if the user was
+        // already watching the live tail — don't yank the view out from
+        // under someone who's scrolled back through history.
+        if (wasAtTail) anchorToLatestEntry()
         if (state.mode === 'chat') await renderChat()
       }
       break
@@ -691,6 +735,7 @@ async function onFooterTap() {
   // Any tap on the chat screen returns the view to live (in case the user
   // was scrolled back reading history) before acting on the tap itself.
   state.transcriptScrollOffset = 0
+  state.userScrolledBack = false
   if (state.busy) {
     await showChoices('Stop agent response?', ['Yes', 'Cancel'])
     state.mode = 'interrupt_confirm'
@@ -952,11 +997,13 @@ async function handleEvent(event: EvenHubEvent) {
     if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
       const maxOffset = Math.max(0, flatTranscriptLines().length - 1)
       state.transcriptScrollOffset = Math.min(maxOffset, state.transcriptScrollOffset + SCROLL_STEP_LINES)
+      state.userScrolledBack = true
       await renderChat(false)
       return
     }
     if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
       state.transcriptScrollOffset = Math.max(0, state.transcriptScrollOffset - SCROLL_STEP_LINES)
+      if (state.transcriptScrollOffset === 0) state.userScrolledBack = false
       await renderChat(false)
       return
     }
