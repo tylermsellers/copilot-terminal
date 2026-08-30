@@ -428,7 +428,14 @@ async function startChat() {
       for (const turn of history) {
         state.transcript.push({ text: turn.text, kind: turn.role === 'user' ? 'user' : 'assistant' })
       }
-      await renderChat(true)
+      // Use the in-place text-update path (not another full rebuild) here —
+      // the containers already exist from the render above, and issuing a
+      // second full createStartUpPageContainer/rebuildPageContainer within
+      // ~1-2s of the first appears to race on real hardware, leaving the
+      // glasses stuck showing the first (empty) paint even though this
+      // promise resolves. textContainerUpgrade is the lighter, serial-safe
+      // update path the SDK provides for exactly this case.
+      await renderChat(false)
     } catch {
       // best-effort context peek only; fine if it fails or times out
     }
