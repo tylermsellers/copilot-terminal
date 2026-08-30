@@ -539,9 +539,12 @@ async function onChoiceSelect(index: number) {
 
   if (pending.kind === 'permission') {
     const decision = label === 'Approve once' ? 'allow' : label === 'Approve for session' ? 'session' : 'deny'
-    await respondPermission(state.sessionId, pending.requestId, decision as any)
     state.pendingChoice = null
+    state.busy = true
+    state.busySince = Date.now()
     await renderChat(true)
+    startTicking()
+    await respondPermission(state.sessionId, pending.requestId, decision as any)
     startPolling()
     return
   }
@@ -553,9 +556,12 @@ async function onChoiceSelect(index: number) {
     return
   }
 
-  await respondQuestion(state.sessionId, pending.requestId, label)
   state.pendingChoice = null
+  state.busy = true
+  state.busySince = Date.now()
   await renderChat(true)
+  startTicking()
+  await respondQuestion(state.sessionId, pending.requestId, label)
   startPolling()
 }
 
@@ -594,7 +600,19 @@ async function beginRecording() {
   state.audioChunks = []
   state.recording = true
   await renderChat()
-  await bridge.audioControl(true, AudioInputSource.Glasses)
+  const ok = await bridge.audioControl(true, AudioInputSource.Glasses)
+  if (!ok) {
+    // Mic genuinely failed to start (permission not granted, already in
+    // use, etc.) — without this check the UI kept showing "Recording…"
+    // while capturing zero audio, surfacing later as a confusing "missing
+    // audio body" error on stop instead of a clear failure up front.
+    state.recording = false
+    state.transcript.push({
+      text: 'Mic failed to start — check microphone permission for this app on your phone.',
+      kind: 'error',
+    })
+    await renderChat(true)
+  }
 }
 
 async function stopRecordingAndSend() {
@@ -610,6 +628,18 @@ async function stopRecordingAndSend() {
     offset += c.length
   }
   state.audioChunks = []
+
+  if (total === 0) {
+    // Fail fast client-side instead of round-tripping an empty body to the
+    // relay, which only reports the generic "Missing audio body" — this is
+    // almost always a mic-permission/start failure, not a network issue.
+    state.transcript.push({
+      text: 'No audio captured — check microphone permission, or try holding a bit longer before stopping.',
+      kind: 'error',
+    })
+    await renderChat(true)
+    return
+  }
 
   let text = ''
   try {
@@ -644,20 +674,29 @@ async function onVoiceComposeSelect(index: number) {
 
   const text = state.voiceDraft
   if (state.voiceTarget.kind === 'question' && state.pendingChoice && state.sessionId) {
-    await respondQuestion(state.sessionId, state.voiceTarget.requestId, text)
     state.pendingChoice = null
+    state.busy = true
+    state.busySince = Date.now()
     await renderChat(true)
+    startTicking()
+    await respondQuestion(state.sessionId, state.voiceTarget.requestId, text)
     startPolling()
     return
   }
 
   state.transcript.push({ text, kind: 'user' })
+  // Show "Thinking…" immediately rather than waiting up to 1.5s for the
+  // next poll tick to report a busy status from the server.
+  state.busy = true
+  state.busySince = Date.now()
   await renderChat(true)
+  startTicking()
   try {
     const result = await sendPrompt(text, state.sessionId ?? undefined)
     state.sessionId = result.sessionId
     startPolling()
   } catch (err: any) {
+    state.busy = false
     state.transcript.push({ text: `Send failed: ${err.message}`, kind: 'error' })
     await renderChat()
   }
