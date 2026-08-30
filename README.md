@@ -120,15 +120,21 @@ it to the public store — see Even's
 Bump `app.json`'s `"version"` before every rebuild/repack you plan to
 distribute (even to yourself) so you can tell builds apart later.
 
-## Configuring the relay connection (phone-side settings)
+## Configuring the relay connection (phone-side app)
 
-The G2/R1 touchpad has no keyboard, so there's no way to type a relay URL or
-auth token from the glasses themselves. Instead, opening this app from the
-**Even App's own plugin menu on your phone** (rather than launching it to the
-glasses) shows a normal HTML settings screen — enter the relay server's URL
-and (optional) auth token there, tap **Test connection** to confirm it's
-reachable, then **Save**. The glasses UI picks up the saved value on its next
-launch, via the SDK's persistent `setLocalStorage`.
+Opening this app from the **Even App's own plugin menu on your phone**
+(rather than launching it to the glasses) is a first-class client, not just
+a settings form: you get a session list, can start a new session or open an
+existing one, and converse with Copilot using your phone's own keyboard —
+including typing free-text answers to permission/question prompts, which
+the glasses can only do by voice.
+
+The first time it's opened with no relay configured yet, it goes straight to
+**Settings** to get you connected. After that, Settings lives behind the
+gear icon (⚙︎) in the top-right of the session list — enter the relay
+server's URL and (optional) auth token, tap **Test connection** to confirm
+it's reachable, then **Save**. The glasses UI picks up the saved value on
+its next launch too, via the SDK's persistent `setLocalStorage`.
 
 Note: the relay's address must also be included in this app's `network`
 permission whitelist (`app.json`, set via `npm run configure` above) — that's

@@ -21,14 +21,10 @@ import {
   getHistory,
   transcribe,
   loadRelayConfig,
-  saveRelayConfig,
-  getRelayUrl,
-  getRelayToken,
-  checkHealth,
   isRelayConfigured,
   type SessionSummary,
 } from './api'
-import { renderPhoneSettings } from './phoneSettings'
+import { renderPhoneApp } from './phoneApp'
 
 // Visible-first-paint placeholder + crash safety net. Real hardware showed a
 // permanently blank white phone screen with no diagnostic available (no
@@ -814,16 +810,11 @@ async function bootFromSource(source: LaunchSource) {
   await loadRelayConfig(bridge)
   if (source === 'appMenu') {
     // Opened from the Even App's own plugin menu (on the phone screen, not
-    // the glasses) — render a normal HTML/CSS settings form instead of the
-    // glasses' pixel-container UI. This is the only place a user can type
-    // free text, since the G2/R1 touchpad has no keyboard input at all.
-    renderPhoneSettings({
-      bridge,
-      getRelayUrl,
-      getRelayToken,
-      saveRelayConfig,
-      checkHealth,
-    })
+    // the glasses) — render the full phone-side app (session list, chat
+    // with keyboard input, settings) instead of the glasses' pixel-
+    // container UI. This is also the only place a user can type free text,
+    // since the G2/R1 touchpad has no keyboard input at all.
+    await renderPhoneApp({ bridge })
   } else if (!isRelayConfigured()) {
     // Launched to the glasses but no relay URL has ever been saved — don't
     // silently guess an address (there is no safe universal default across
