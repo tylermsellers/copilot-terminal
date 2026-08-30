@@ -18,6 +18,21 @@ import { pushMessage } from "./store.js";
 const IDLE_RELEASE_MS = 90_000;
 const IDLE_SWEEP_INTERVAL_MS = 15_000;
 
+// Failsafe for a session that reports "busy" and then never reports back.
+// We derive state purely from SDK events (session.idle / session.error), so
+// this shouldn't normally get stuck the way even-terminal's file-tail-based
+// busy/idle detection did (see eveng2-terminal-textinput's "stale busy"
+// patch notes — it derived state from the last line of the session's .jsonl
+// transcript, which broke once newer Claude Code versions appended
+// timestamp-less metadata trailers after the real turn-end marker). Our
+// failure mode would be different (a dropped/uncaught SDK event, a hung
+// tool call, or the underlying CLI process dying without emitting
+// session.error) but the symptom is the same: the phone/glasses UI would
+// show "Thinking…" forever with no way to recover short of restarting the
+// relay. This sweep force-clears it after a generous timeout so the UI
+// always recovers on its own.
+const STALE_BUSY_MS = 10 * 60_000;
+
 class Bridge {
   constructor() {
     this.client = new CopilotClient(); // uses locally logged-in `copilot` CLI auth by default
@@ -28,12 +43,17 @@ class Bridge {
     this.state = new Map();
     /** @type {Map<string, number>} last time this session saw phone/glasses activity */
     this.lastActivity = new Map();
+    /** @type {Map<string, number>} timestamp a session most recently entered "busy" state */
+    this.busySince = new Map();
     /** @type {Map<string, (result: any) => void>} keyed by `${sessionId}:${requestId}` */
     this.pendingPermissions = new Map();
     /** @type {Map<string, (result: any) => void>} keyed by `${sessionId}:${requestId}` */
     this.pendingQuestions = new Map();
     this._requestSeq = 0;
-    this._idleSweepTimer = setInterval(() => void this.sweepIdleSessions(), IDLE_SWEEP_INTERVAL_MS);
+    this._idleSweepTimer = setInterval(() => {
+      void this.sweepIdleSessions();
+      this.sweepStaleBusy();
+    }, IDLE_SWEEP_INTERVAL_MS);
     this._idleSweepTimer.unref?.();
   }
 
@@ -65,12 +85,42 @@ class Bridge {
     }
   }
 
+  /**
+   * Force-clear any session that's been "busy" for longer than
+   * STALE_BUSY_MS. This should be rare — it means either the SDK dropped an
+   * event, a tool call is genuinely hung, or the underlying `copilot`
+   * process died without emitting session.error — but without a failsafe
+   * the phone/glasses UI would show "Thinking…" indefinitely with no way to
+   * recover. Emits an error message so the client surfaces what happened
+   * instead of just silently flipping back to idle.
+   */
+  sweepStaleBusy() {
+    const now = Date.now();
+    for (const [sessionId, since] of [...this.busySince]) {
+      if (this.getState(sessionId) !== "busy") {
+        this.busySince.delete(sessionId);
+        continue;
+      }
+      if (now - since < STALE_BUSY_MS) continue;
+      this.emit(sessionId, {
+        type: "error",
+        message: `No response for ${Math.round(STALE_BUSY_MS / 60_000)}+ minutes — marking idle. The task may still be running; check the terminal if this recurs.`,
+      });
+      this.setState(sessionId, "idle");
+    }
+  }
+
   emit(sessionId, msg) {
     pushMessage(sessionId, msg);
   }
 
   setState(sessionId, state) {
     this.state.set(sessionId, state);
+    if (state === "busy") {
+      if (!this.busySince.has(sessionId)) this.busySince.set(sessionId, Date.now());
+    } else {
+      this.busySince.delete(sessionId);
+    }
     this.emit(sessionId, { type: "status", state });
   }
 
@@ -132,6 +182,17 @@ class Bridge {
    * connection is released automatically after IDLE_RELEASE_MS of no
    * phone/glasses activity (see sweepIdleSessions), so briefly picking up
    * someone else's session doesn't hold onto it forever afterward.
+   *
+   * KNOWN LIMITATION (not fixed by the idle-release mitigation above):
+   * typing a prompt from the phone/glasses into a session that is *still
+   * actively open in an interactive terminal at that exact moment* can fork
+   * that session's history — two writers racing on the same turn, not just
+   * a lingering held-open connection. eveng2-terminal-textinput documents
+   * the identical risk for even-terminal and recommends the same practical
+   * rule we follow here: treat a session as read-only (peek via
+   * getSessionHistory, don't prompt into it) while it's known to be open
+   * elsewhere, and prefer prompting from a session this relay itself
+   * created or one you know is idle everywhere else.
    */
   async resumeExisting(sessionId, cwd) {
     await this.ensureStarted();

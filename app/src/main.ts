@@ -11,6 +11,7 @@ import {
   type LaunchSource,
 } from '@evenrealities/even_hub_sdk'
 import { measureTextWrap } from '@evenrealities/pretext'
+import { initEvenNotifications, evenNotification } from 'even-notifications'
 import {
   listSessions,
   sendPrompt,
@@ -255,10 +256,21 @@ function voiceComposeContainers(draft: string) {
 }
 
 let started = false
+// Cache of whatever containers are currently on screen, so a notification
+// popup (see even-notifications import) knows what to redraw once it
+// auto-dismisses — see getCurrentPage below. Populated on every rebuild().
+let lastPagePayload: RebuildPageContainer | null = null
 async function rebuild(payload: CreateStartUpPageContainer) {
+  lastPagePayload = payload as unknown as RebuildPageContainer
   if (!started) {
     await bridge.createStartUpPageContainer(payload)
     started = true
+    // even-notifications needs the bridge + a way to fetch whatever's
+    // currently on screen so it can restore it once a popup dismisses.
+    // Registered here (once, after the very first real page exists) rather
+    // than at bridge-ready time, since getCurrentPage would have nothing
+    // valid to return before that.
+    initEvenNotifications(bridge, () => lastPagePayload!)
   } else {
     await bridge.rebuildPageContainer(payload as unknown as RebuildPageContainer)
   }
@@ -491,11 +503,24 @@ async function pollOnce() {
 
 async function handleMessage(msg: any) {
   switch (msg.type) {
-    case 'status':
+    case 'status': {
+      const wasBusy = state.busy
       state.busy = msg.state === 'busy'
       if (state.busy) state.busySince = Date.now()
+      // Flash a notification popup when a reply finishes arriving while the
+      // user has scrolled back through history (transcriptScrollOffset > 0)
+      // — i.e. they're not currently looking at the live tail and could
+      // easily miss that something new showed up. Skipped while already
+      // watching the tail live, since the transcript update itself is
+      // enough of a cue there. even-notifications only ships generic
+      // pre-baked templates (no per-call custom text) as of v1.0.1, so this
+      // is a plain attention chime, not a content preview.
+      if (wasBusy && !state.busy && state.mode === 'chat' && state.transcriptScrollOffset > 0) {
+        evenNotification('incoming-email', { durationMs: 4000 })
+      }
       if (state.mode === 'chat') await renderChat()
       break
+    }
     case 'assistant_message':
       if (msg.text) {
         state.transcript.push({ text: msg.text, kind: 'assistant' })

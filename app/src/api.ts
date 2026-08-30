@@ -76,6 +76,7 @@ export interface SessionSummary {
 
 export interface RelayMessage {
   id: number
+  ts?: number
   type: 'status' | 'user_prompt' | 'assistant_message' | 'permission_request' | 'question' | 'error' | 'tool_start'
   [key: string]: any
 }
