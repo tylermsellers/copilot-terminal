@@ -195,7 +195,6 @@ function chatContainers(transcriptText: string, footerText: string) {
         containerName: 'footer',
         content: footerText,
         isEventCapture: 0,
-        borderRadius: BORDER_RADIUS,
       }),
     ],
   })
@@ -255,7 +254,6 @@ function voiceComposeContainers(draft: string) {
         containerName: 'draft',
         content: draft,
         isEventCapture: 0,
-        borderRadius: BORDER_RADIUS,
       }),
     ],
     listObject: [
