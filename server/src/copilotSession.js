@@ -224,7 +224,11 @@ class Bridge {
     const events = await withTimeout(session.getEvents(), 5000);
     const turns = events
       .filter((e) => e.type === "assistant.message" || e.type === "user.message")
-      .map((e) => ({ role: e.type === "assistant.message" ? "assistant" : "user", text: e.data?.content ?? "" }));
+      .map((e) => ({ role: e.type === "assistant.message" ? "assistant" : "user", text: e.data?.content ?? "" }))
+      // Some assistant.message events carry empty content (e.g. a tool-only
+      // turn with no accompanying text) — without this filter these turned
+      // into blank chat bubbles on both the phone and glasses UIs.
+      .filter((t) => t.text.trim().length > 0);
     if (!this.sessions.has(sessionId)) await session.disconnect(); // read-only peek, don't hold it open
     return turns.slice(-limit);
   }

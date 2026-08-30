@@ -10,7 +10,7 @@ import {
   type EvenHubEvent,
   type LaunchSource,
 } from '@evenrealities/even_hub_sdk'
-import { measureTextWrap } from '@evenrealities/pretext'
+import { getTextWidth } from '@evenrealities/pretext'
 import { initEvenNotifications, evenNotification } from 'even-notifications'
 import {
   listSessions,
@@ -311,28 +311,79 @@ function entryDisplayText(e: TranscriptEntry): string {
   }
 }
 
-// Keep only as many trailing transcript entries as fit TRANSCRIPT_MAX_LINES,
-// using pixel-accurate wrapping so the log behaves like an auto-scrolling
-// terminal (oldest lines fall off the top). `transcriptScrollOffset` hides
-// that many of the newest entries first, so scrolling back pages through
-// older history without disturbing what's currently on screen when new
-// messages arrive while scrolled back.
-function renderTranscriptText(): string {
-  const visible =
-    state.transcriptScrollOffset > 0
-      ? state.transcript.slice(0, Math.max(0, state.transcript.length - state.transcriptScrollOffset))
-      : state.transcript
-  const kept: string[] = []
-  let lines = 0
-  for (let i = visible.length - 1; i >= 0; i--) {
-    const display = entryDisplayText(visible[i])
-    const wrapped = measureTextWrap(display, INNER_W).lineCount
-    if (lines + wrapped > TRANSCRIPT_MAX_LINES && kept.length > 0) break
-    kept.unshift(display)
-    lines += wrapped
-    if (lines >= TRANSCRIPT_MAX_LINES) break
+// Splits text into individual display lines that each fit within maxWidth,
+// using the same pixel-accurate getTextWidth metric measureTextWrap uses
+// internally. Needed because measureTextWrap only reports a line *count*,
+// not the actual line strings — and we need real lines to do line-level
+// scroll pagination (see renderTranscriptText) instead of only ever paging
+// by whole transcript entries, which left long responses unreadable past
+// whatever fit in the first screenful (see git history for the bug this
+// fixed: a response longer than TRANSCRIPT_MAX_LINES had no way to scroll
+// to its own remainder, since scrolling only ever hid/revealed whole
+// entries, never partial ones).
+function wrapLines(text: string, maxWidth: number): string[] {
+  const lines: string[] = []
+  for (const paragraph of text.split('\n')) {
+    if (paragraph === '') {
+      lines.push('')
+      continue
+    }
+    let current = ''
+    for (const word of paragraph.split(' ')) {
+      const candidate = current ? `${current} ${word}` : word
+      if (getTextWidth(candidate) <= maxWidth) {
+        current = candidate
+        continue
+      }
+      if (current) {
+        lines.push(current)
+        current = ''
+      }
+      // Single word alone is wider than the container — hard-break it by
+      // character (binary search for the longest fitting prefix each time)
+      // rather than overflowing, matching measureTextWrap's own fallback.
+      let remaining = word
+      while (getTextWidth(remaining) > maxWidth && remaining.length > 1) {
+        let lo = 1
+        let hi = remaining.length
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2)
+          if (getTextWidth(remaining.slice(0, mid)) <= maxWidth) lo = mid
+          else hi = mid - 1
+        }
+        lines.push(remaining.slice(0, lo))
+        remaining = remaining.slice(lo)
+      }
+      current = remaining
+    }
+    lines.push(current)
   }
-  return kept.join('\n')
+  return lines.length ? lines : ['']
+}
+
+// Flattens the whole transcript into individual display lines (each entry's
+// prefix + wrapped body), preserving order. This is the unit
+// transcriptScrollOffset now counts in — lines, not entries — so scrolling
+// can page through any entry's full content, including one longer than a
+// single screenful.
+function flatTranscriptLines(): string[] {
+  const out: string[] = []
+  for (const entry of state.transcript) {
+    out.push(...wrapLines(entryDisplayText(entry), INNER_W))
+  }
+  return out
+}
+
+// Windows the flattened line list so the newest `transcriptScrollOffset`
+// lines are hidden from the bottom (0 = live tail), then returns the
+// TRANSCRIPT_MAX_LINES lines ending there — a genuine per-line pager rather
+// than the old per-entry one, so a response longer than one screen can be
+// scrolled through to its actual end instead of getting silently clipped.
+function renderTranscriptText(): string {
+  const allLines = flatTranscriptLines()
+  const end = Math.max(0, allLines.length - state.transcriptScrollOffset)
+  const start = Math.max(0, end - TRANSCRIPT_MAX_LINES)
+  return allLines.slice(start, end).join('\n')
 }
 
 function footerText(): string {
@@ -482,6 +533,10 @@ async function startChat() {
     try {
       const history = await withTimeout(getHistory(state.sessionId, 6), 4000)
       for (const turn of history) {
+        // Defensive filter alongside the server-side one — an empty-text
+        // turn (e.g. a tool-only turn with no accompanying message) would
+        // otherwise render as a blank line in the transcript.
+        if (!turn.text.trim()) continue
         state.transcript.push({ text: turn.text, kind: turn.role === 'user' ? 'user' : 'assistant' })
       }
       // Use the in-place text-update path (not another full rebuild) here —
@@ -867,14 +922,20 @@ async function handleEvent(event: EvenHubEvent) {
   // toggling voice recording, seen as a spurious "missing audio body"
   // transcription failure when the untouched mic was immediately stopped).
   if (state.mode === 'chat' && (sys || text)) {
+    // Page by nearly a full screenful per gesture (with 1 line of overlap
+    // for reading continuity), now measured in actual wrapped display
+    // lines rather than whole transcript entries — see flatTranscriptLines/
+    // renderTranscriptText for why: entry-level granularity couldn't page
+    // through a single response longer than one screenful.
+    const SCROLL_STEP_LINES = Math.max(1, TRANSCRIPT_MAX_LINES - 1)
     if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
-      const maxOffset = Math.max(0, state.transcript.length - 1)
-      state.transcriptScrollOffset = Math.min(maxOffset, state.transcriptScrollOffset + 3)
+      const maxOffset = Math.max(0, flatTranscriptLines().length - 1)
+      state.transcriptScrollOffset = Math.min(maxOffset, state.transcriptScrollOffset + SCROLL_STEP_LINES)
       await renderChat(false)
       return
     }
     if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
-      state.transcriptScrollOffset = Math.max(0, state.transcriptScrollOffset - 3)
+      state.transcriptScrollOffset = Math.max(0, state.transcriptScrollOffset - SCROLL_STEP_LINES)
       await renderChat(false)
       return
     }

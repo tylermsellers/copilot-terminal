@@ -601,6 +601,10 @@ async function openSession(sessionId: string | null, title: string) {
     try {
       const history = await getHistory(sessionId, 12)
       for (const turn of history) {
+        // Defensive filter alongside the server-side one — an empty-text
+        // turn (e.g. a tool-only turn with no accompanying message) would
+        // otherwise render as a blank chat bubble.
+        if (!turn.text.trim()) continue
         state.entries.push({ kind: turn.role === 'user' ? 'user' : 'assistant', text: turn.text })
       }
       renderChatScreen()
