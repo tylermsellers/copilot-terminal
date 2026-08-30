@@ -87,7 +87,10 @@ export async function listSessions(limit = 8, scope: 'known' | 'all' = 'known'):
   return data.sessions ?? []
 }
 
-export async function sendPrompt(text: string, sessionId?: string): Promise<{ sessionId: string }> {
+export async function sendPrompt(
+  text: string,
+  sessionId?: string
+): Promise<{ sessionId: string; promptMessageId?: number }> {
   const res = await fetch(`${relayUrl}/api/prompt`, {
     method: 'POST',
     headers: headers(),

@@ -651,6 +651,12 @@ function handleMessage(msg: RelayMessage) {
       state.busy = msg.state === 'busy'
       if (state.busy) state.busySince = Date.now()
       break
+    case 'user_prompt':
+      // Same-origin prompts fast-forward past their own id (see
+      // sendMessage above); anything reaching here came from the glasses,
+      // a terminal typing directly into this session, or another client.
+      if (msg.text) state.entries.push({ kind: 'user', text: msg.text })
+      break
     case 'assistant_message':
       if (msg.text) state.entries.push({ kind: 'assistant', text: msg.text })
       break
@@ -852,6 +858,11 @@ async function sendMessage(rawText: string) {
     if (state.sessionId !== result.sessionId) {
       state.sessionId = result.sessionId
       startPolling()
+    }
+    // See main.ts's equivalent comment: fast-forward past our own echoed
+    // prompt so the next poll doesn't re-display the bubble added above.
+    if (typeof result.promptMessageId === 'number') {
+      state.lastMessageId = Math.max(state.lastMessageId, result.promptMessageId)
     }
   } catch (err: any) {
     state.busy = false

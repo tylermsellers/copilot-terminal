@@ -55,6 +55,7 @@ const SEND_LIST_ID = 6 // voice-compose layout: Send/Cancel list, isEventCapture
 
 const PAD = 6
 const BORDER = 1
+const BORDER_RADIUS = 6 // rounded corners on the terminal-style outline, matching the official app's look
 const INSET = PAD + BORDER
 const INNER_W = 576 - 2 * INSET
 const FOOTER_H = 27 + 2 * INSET // exactly one line
@@ -175,6 +176,7 @@ function chatContainers(transcriptText: string, footerText: string) {
         containerID: TRANSCRIPT_ID,
         containerName: 'transcript',
         content: transcriptText,
+        borderRadius: BORDER_RADIUS,
         // Event capture lives here (not on the footer) so scroll gestures
         // (SCROLL_TOP_EVENT/SCROLL_BOTTOM_EVENT) target the transcript and
         // can page through history — only one container per page may
@@ -193,6 +195,7 @@ function chatContainers(transcriptText: string, footerText: string) {
         containerName: 'footer',
         content: footerText,
         isEventCapture: 0,
+        borderRadius: BORDER_RADIUS,
       }),
     ],
   })
@@ -252,6 +255,7 @@ function voiceComposeContainers(draft: string) {
         containerName: 'draft',
         content: draft,
         isEventCapture: 0,
+        borderRadius: BORDER_RADIUS,
       }),
     ],
     listObject: [
@@ -632,8 +636,19 @@ async function handleMessage(msg: any) {
       await showChoices(msg.question ?? 'Copilot is asking:', [...choices, 'Speak custom answer'])
       break
     }
+    case 'user_prompt':
+      // A prompt from somewhere other than this exact client's own last
+      // send — the phone, a terminal typing directly into this same
+      // session, or another instance of this app. Our own sends already
+      // fast-forward past their own id (see startChat/sendText), so
+      // anything reaching here is genuinely new to us.
+      if (msg.text) {
+        state.transcript.push({ text: msg.text, kind: 'user' })
+        if (state.mode === 'chat') await renderChat()
+      }
+      break
     default:
-      break // user_prompt handled locally already
+      break
   }
 }
 
@@ -865,6 +880,14 @@ async function onVoiceComposeSelect(index: number) {
   try {
     const result = await sendPrompt(text, state.sessionId ?? undefined)
     state.sessionId = result.sessionId
+    // Fast-forward past our own echoed prompt so the next poll doesn't
+    // re-display the bubble we already added above — see api.ts/
+    // copilotSession.js's promptMessageId plumbing for why this is safe to
+    // do unconditionally (it only ever advances, never skips someone else's
+    // message, since ids are strictly increasing per session).
+    if (typeof result.promptMessageId === 'number') {
+      state.lastMessageId = Math.max(state.lastMessageId, result.promptMessageId)
+    }
     startPolling()
   } catch (err: any) {
     state.busy = false

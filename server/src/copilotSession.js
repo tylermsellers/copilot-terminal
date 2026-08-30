@@ -46,6 +46,14 @@ class Bridge {
     this.lastActivity = new Map();
     /** @type {Map<string, number>} timestamp a session most recently entered "busy" state */
     this.busySince = new Map();
+    /**
+     * @type {Map<string, string>} keyed by sessionId, one-shot guard so this
+     * relay's own prompt() call doesn't get double-recorded when the SDK
+     * echoes the same text back via its own "user.message" event (see
+     * wireEvents()). Set right before session.send(), cleared the first
+     * time that exact text is seen coming back.
+     */
+    this.suppressNextUserEcho = new Map();
     /** @type {Map<string, (result: any) => void>} keyed by `${sessionId}:${requestId}` */
     this.pendingPermissions = new Map();
     /** @type {Map<string, (result: any) => void>} keyed by `${sessionId}:${requestId}` */
@@ -112,7 +120,7 @@ class Bridge {
   }
 
   emit(sessionId, msg) {
-    pushMessage(sessionId, msg);
+    return pushMessage(sessionId, msg);
   }
 
   setState(sessionId, state) {
@@ -240,6 +248,26 @@ class Bridge {
       this.emit(sessionId, { type: "assistant_message", text: event.data.content });
     });
 
+    // Fires for a user message regardless of origin — our own prompt() call,
+    // a `copilot` CLI session open directly in a terminal, or another relay
+    // client resuming the same session. This is what makes phone/glasses/
+    // terminal a genuine 3-way sync instead of only reflecting prompts sent
+    // through this relay's own /api/prompt route. Our own prompt() calls
+    // already emit their own user_prompt (so it gets an id back
+    // synchronously to return to the caller) — suppressNextUserEcho skips
+    // the resulting duplicate here so the store ends up with exactly one
+    // entry per prompt no matter who sent it.
+    session.on("user.message", (event) => {
+      const text = event.data?.content ?? "";
+      if (!text.trim()) return;
+      const suppressed = this.suppressNextUserEcho.get(sessionId);
+      if (suppressed !== undefined && suppressed === text) {
+        this.suppressNextUserEcho.delete(sessionId);
+        return;
+      }
+      this.emit(sessionId, { type: "user_prompt", text });
+    });
+
     session.on("session.idle", () => {
       this.setState(sessionId, "idle");
     });
@@ -269,12 +297,19 @@ class Bridge {
     }
     this.touch(session.sessionId);
     this.setState(session.sessionId, "busy");
-    this.emit(session.sessionId, { type: "user_prompt", text });
+    // Capture the id this user_prompt message is assigned in the shared
+    // store: the caller (whichever client — phone or glasses — actually
+    // sent this) echoes it locally already, and returns this id so it can
+    // fast-forward its own poll cursor past it. That's what lets the OTHER
+    // client's poll loop pick this same message up and render it too,
+    // without the sender seeing a duplicate of its own bubble.
+    this.suppressNextUserEcho.set(session.sessionId, text);
+    const promptMessageId = this.emit(session.sessionId, { type: "user_prompt", text });
     session.send(text).catch((err) => {
       this.emit(session.sessionId, { type: "error", message: err.message });
       this.setState(session.sessionId, "idle");
     });
-    return { sessionId: session.sessionId };
+    return { sessionId: session.sessionId, promptMessageId };
   }
 
   respondPermission(sessionId, requestId, decision) {

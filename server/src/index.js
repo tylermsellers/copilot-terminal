@@ -57,7 +57,7 @@ app.get("/api/sessions/:id/history", async (req, res) => {
   }
 });
 
-// POST /api/prompt { text, sessionId?, cwd? } -> { sessionId }
+// POST /api/prompt { text, sessionId?, cwd? } -> { sessionId, promptMessageId }
 app.post("/api/prompt", async (req, res) => {
   const { text, sessionId, cwd } = req.body ?? {};
   if (!text || typeof text !== "string") {
@@ -66,7 +66,7 @@ app.post("/api/prompt", async (req, res) => {
   }
   try {
     const result = await bridge.prompt(sessionId, text, cwd);
-    res.status(202).json({ ok: true, sessionId: result.sessionId });
+    res.status(202).json({ ok: true, sessionId: result.sessionId, promptMessageId: result.promptMessageId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
