@@ -100,11 +100,14 @@ const STYLE = `
   }
   .navbar-title {
     position: absolute;
-    left: 0; right: 0;
+    left: 76px; right: 76px;
     text-align: center;
     font-size: 17px;
     font-weight: 600;
     pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .navbar-side { display: flex; align-items: center; min-width: 44px; }
   .navbar-side.right { justify-content: flex-end; }
@@ -637,6 +640,17 @@ function entryHtml(e: ChatEntry, idx: number): string {
 function renderChatScreen(preserveScroll = false) {
   const prevScroll = preserveScroll ? document.querySelector('.content')?.scrollTop : undefined
   const prevScrollHeight = preserveScroll ? document.querySelector('.content')?.scrollHeight : undefined
+  // Preserve whatever the user is mid-typing (value, cursor, focus) across a
+  // rebuild — the 1.2s poll timer calls this whenever new messages arrive
+  // (e.g. while Copilot is "thinking"), and without this the composer used
+  // to get silently wiped/refocused-away every tick, making it look like
+  // typed text wasn't showing up at all.
+  const prevComposer = document.getElementById('composer') as HTMLTextAreaElement | null
+  const hadFocus = !!prevComposer && document.activeElement === prevComposer
+  const savedValue = prevComposer?.value ?? ''
+  const savedSelStart = prevComposer?.selectionStart ?? null
+  const savedSelEnd = prevComposer?.selectionEnd ?? null
+  const savedHeight = prevComposer?.style.height
   app().innerHTML = `
     <div class="navbar">
       <div class="navbar-side">
@@ -668,6 +682,12 @@ function renderChatScreen(preserveScroll = false) {
 
   const composer = document.getElementById('composer') as HTMLTextAreaElement
   const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement
+  composer.value = savedValue
+  if (savedHeight) composer.style.height = savedHeight
+  if (hadFocus) {
+    composer.focus()
+    if (savedSelStart !== null && savedSelEnd !== null) composer.setSelectionRange(savedSelStart, savedSelEnd)
+  }
   composer.addEventListener('input', () => {
     composer.style.height = 'auto'
     composer.style.height = `${Math.min(composer.scrollHeight, 120)}px`

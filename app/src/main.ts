@@ -307,9 +307,9 @@ function footerText(): string {
     const elapsed = Math.max(0, Math.floor((Date.now() - state.busySince) / 1000))
     return `Thinking… ${elapsed}s`
   }
-  if (state.recording) return 'Recording… ● stop'
+  if (state.recording) return 'Recording… ○ stop'
   if (state.transcriptScrollOffset > 0) return '▲ scrolled back — scroll down for latest'
-  return '● record   ●● sessions   ▲▼ scroll'
+  return '○ reply   ◎ sessions   ▲▼ scroll'
 }
 
 async function renderChat(fullRebuild = false) {
@@ -373,7 +373,7 @@ async function showSessionPicker() {
   state.pickerSessions = sessions
   state.pendingChoice = null
   const choices = ['+ New session', ...sessions.map((s) => s.title || '(untitled)')]
-  await showChoices('Pick a session:\ntap = open   double-tap = exit', choices)
+  await showChoices('Pick a session:\n○ open   ◎ exit', choices)
   state.mode = 'picker' // showChoices defaults to 'choice'; override since this is the session picker
 }
 
