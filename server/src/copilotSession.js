@@ -59,6 +59,8 @@ class Bridge {
     /** @type {Map<string, (result: any) => void>} keyed by `${sessionId}:${requestId}` */
     this.pendingQuestions = new Map();
     this._requestSeq = 0;
+    /** @type {((sessionId: string, msg: any) => void)[]} extra subscribers fed every emit(), e.g. the even-terminal SSE adapter. */
+    this._listeners = [];
     this._idleSweepTimer = setInterval(() => {
       void this.sweepIdleSessions();
       this.sweepStaleBusy();
@@ -120,7 +122,20 @@ class Bridge {
   }
 
   emit(sessionId, msg) {
-    return pushMessage(sessionId, msg);
+    const id = pushMessage(sessionId, msg);
+    for (const cb of this._listeners) {
+      try {
+        cb(sessionId, msg);
+      } catch {
+        // a broken listener shouldn't take down the relay's own message bus
+      }
+    }
+    return id;
+  }
+
+  /** Register an extra subscriber fed every message this session emits (in addition to the poll-buffer store). Used by the even-terminal SSE adapter to translate + fan out over its own transport without this Bridge needing to know it exists. */
+  onMessage(cb) {
+    this._listeners.push(cb);
   }
 
   setState(sessionId, state) {
@@ -171,7 +186,11 @@ class Bridge {
   async createSession(cwd) {
     await this.ensureStarted();
     const session = await this.client.createSession({
-      model: "claude-sonnet-4.6",
+      // "auto" lets the SDK pick whatever's currently available instead of a
+      // pinned model id, which otherwise goes stale as GitHub renames/retires
+      // models (this was previously hardcoded to "claude-sonnet-4.6", which
+      // now 404s with "Model is not available").
+      model: "auto",
       workingDirectory: cwd,
       ...this.makeHandlers(),
     });

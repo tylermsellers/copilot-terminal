@@ -34,7 +34,63 @@ the repo and point it at a [Tailscale](https://tailscale.com/) address, a
 Cloudflare Tunnel, or similar — anything that gives you one stable address to
 whitelist works the same way.
 
-## Running locally
+## Terminal Mode adapter (recommended path)
+
+`server/src/evenTerminal/` implements the wire protocol used by the Even
+App's own built-in **Terminal Mode** feature, so you can drive a real
+Copilot CLI session from the glasses/R1 ring using Even's official,
+polished Terminal UI — no custom glasses app, no `.ehpk` packaging or
+version-bump cycle required. It presents itself as provider `"claude"`
+cosmetically (Even's Terminal Mode UI only renders known provider names),
+but every session underneath is a real GitHub Copilot CLI session via the
+same `copilotSession.js` bridge the custom app (`app/`) uses.
+
+```powershell
+cd server
+npm install
+npm run start:terminal
+```
+
+This prints a pairing URL (`http://<lan-ip>:<port>?token=...`) — scan/enter
+it in the Even App under Terminal Mode. Set fixed `TERMINAL_PORT` and
+`TERMINAL_TOKEN` values in `.env` so your saved pairing survives restarts
+(a random token is generated otherwise).
+
+### Running it in the background, at logon
+
+`server/src/evenTerminal/register-tasks.ps1` registers two Windows
+Scheduled Tasks — no admin elevation required — that start automatically
+when you log in, with no visible console window:
+
+```powershell
+cd server/src/evenTerminal
+./register-tasks.ps1
+```
+
+- **`CopilotGlassesEvenTerminal`** — runs the adapter itself (via
+  `start-hidden.vbs` → `run.bat`, output logged to `adapter.log`).
+- **`CopilotGlassesEvenTerminalTray`** — a system tray icon (glasses shape,
+  green/red for reachable/unreachable) with a right-click menu to
+  Start/Stop/Restart the adapter and open its log file.
+
+All paths in these scripts resolve relative to their own location, so the
+same script works unmodified after `git clone` on a different machine —
+just re-run `register-tasks.ps1` there. Note: the task trigger is "at logon,"
+not raw power-on, so after a reboot the adapter won't start until you
+actually sign in to Windows (unless you configure auto-login). It also
+won't run while the PC is asleep — consider enabling Wake-on-LAN if you need
+the adapter reachable while away from the machine.
+
+### Should I still use the custom glasses app (`app/`)?
+
+Keep both for now if useful — they're independent and can run side by side.
+The Terminal Mode adapter loses typed free-text answers to permission/
+question prompts (R1-ring/voice only, using Even's own STT), and depends on
+owning an R1 ring for full interaction. The custom app (`app/`) still offers
+a phone-side client with a full keyboard. Retiring `app/` is a future option
+once Terminal Mode's approve/deny flow is verified reliable on real hardware.
+
+## Running locally (custom glasses app)
 
 ```powershell
 # 1. Configure a speech-to-text provider (one-time, interactive)

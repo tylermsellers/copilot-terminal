@@ -16,7 +16,7 @@
     "vite": "^8.2.2"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.14",
+    "@evenrealities/even_hub_sdk": "^0.0.15",
     "@evenrealities/pretext": "^0.1.4",
     "even-notifications": "^1.0.1"
   }
