@@ -1,62 +1,36 @@
 # Copilot Terminal
 
-Talk to a live GitHub Copilot CLI session from Even Realities G2 smart glasses.
+Talk to a live GitHub Copilot CLI session from Even Realities G2 smart
+glasses (or the R1 ring), using the Even App's own built-in **Terminal
+Mode** feature.
 
-This project has two parts:
+`server/src/evenTerminal/` is a small local Node adapter that implements
+Terminal Mode's wire protocol (an `/api/*` HTTP + SSE contract) on top of
+[`@github/copilot-sdk`](https://www.npmjs.com/package/@github/copilot-sdk).
+It presents itself as provider `"claude"` cosmetically — Even's Terminal
+Mode UI only renders a few known provider names — but every session
+underneath is a real GitHub Copilot CLI session.
 
-- **`server/`** — a local Node relay that wraps `@github/copilot-sdk`. It exposes
-  a small HTTP API (list/create/resume sessions, send prompts, stream events,
-  transcribe voice via Azure Speech, interrupt, fetch history) for the glasses
-  app to talk to.
-- **`app/`** — an Even Hub G2 glasses app (Vite + TypeScript, built on
-  `@evenrealities/even_hub_sdk`) with a terminal-style UI: a session picker,
-  a bordered scrolling transcript + status footer, permission/question
-  prompts, and a voice-compose flow (record → transcribe → confirm → send).
+Because it speaks Even's own official protocol, there's no custom glasses
+app to build, no `.ehpk` packaging, and no version-bump-and-resideload cycle:
+you just point the Even App's Terminal Mode at your adapter's address, and
+you get Even's polished native UI plus R1 ring input for free.
 
-## Important: this is a self-pack app, not a single shared Even Hub download
-
-The relay server runs **locally on your own machine**, reachable only on
-your LAN, at an address that's different for everyone. Even Hub's `app.json`
-network permission whitelist only accepts exact origins — no wildcards, no
-bare hostnames (confirmed in
-[Even's own networking docs](https://hub.evenrealities.com/docs/build/networking)).
-That means there is no single `.ehpk` that can work out of the box for every
-user: whoever's LAN IP got baked into the whitelist at build time is the only
-person it will ever work for.
-
-So instead of a single public Even Hub store listing, **everyone builds and
-packs their own copy** with their own address baked in, then sideloads it as
-a Private Build. It's still the same open-source app — just a per-user build
-step instead of a one-click install. See "Packaging your own build" below.
-
-Want to reach your relay from outside your LAN (e.g. while traveling)? Fork
-the repo and point it at a [Tailscale](https://tailscale.com/) address, a
-Cloudflare Tunnel, or similar — anything that gives you one stable address to
-whitelist works the same way.
-
-## Terminal Mode adapter (recommended path)
-
-`server/src/evenTerminal/` implements the wire protocol used by the Even
-App's own built-in **Terminal Mode** feature, so you can drive a real
-Copilot CLI session from the glasses/R1 ring using Even's official,
-polished Terminal UI — no custom glasses app, no `.ehpk` packaging or
-version-bump cycle required. It presents itself as provider `"claude"`
-cosmetically (Even's Terminal Mode UI only renders known provider names),
-but every session underneath is a real GitHub Copilot CLI session via the
-same `copilotSession.js` bridge the custom app (`app/`) uses.
+## Running it
 
 ```powershell
 cd server
 npm install
+copy .env.example .env   # then set TERMINAL_TOKEN to any fixed random string
 npm run start:terminal
 ```
 
 This prints a pairing URL (`http://<lan-ip>:<port>?token=...`) — scan/enter
-it in the Even App under Terminal Mode. Set fixed `TERMINAL_PORT` and
-`TERMINAL_TOKEN` values in `.env` so your saved pairing survives restarts
-(a random token is generated otherwise).
+it in the Even App under **Terminal Mode**. Keep `TERMINAL_PORT` and
+`TERMINAL_TOKEN` fixed in `.env` so your saved pairing survives restarts (a
+random token is generated instead if you leave it blank).
 
-### Running it in the background, at logon
+## Running it in the background, at logon
 
 `server/src/evenTerminal/register-tasks.ps1` registers two Windows
 Scheduled Tasks — no admin elevation required — that start automatically
@@ -75,127 +49,37 @@ cd server/src/evenTerminal
 
 All paths in these scripts resolve relative to their own location, so the
 same script works unmodified after `git clone` on a different machine —
-just re-run `register-tasks.ps1` there. Note: the task trigger is "at logon,"
-not raw power-on, so after a reboot the adapter won't start until you
-actually sign in to Windows (unless you configure auto-login). It also
-won't run while the PC is asleep — consider enabling Wake-on-LAN if you need
-the adapter reachable while away from the machine.
+just re-run `register-tasks.ps1` there.
 
-### Should I still use the custom glasses app (`app/`)?
+Notes:
+- The task trigger is "at logon," not raw power-on — after a reboot the
+  adapter won't start until you actually sign in to Windows (unless you
+  configure auto-login).
+- It won't run while the PC is asleep — consider enabling Wake-on-LAN if you
+  need the adapter reachable while away from the machine.
+- If your LAN IP changes, the pairing URL changes too — a router DHCP
+  reservation (or static IP) keeps it stable.
 
-Keep both for now if useful — they're independent and can run side by side.
-The Terminal Mode adapter loses typed free-text answers to permission/
-question prompts (R1-ring/voice only, using Even's own STT), and depends on
-owning an R1 ring for full interaction. The custom app (`app/`) still offers
-a phone-side client with a full keyboard. Retiring `app/` is a future option
-once Terminal Mode's approve/deny flow is verified reliable on real hardware.
+## Known limitations
 
-## Running locally (custom glasses app)
+- Terminal Mode's input is R1-ring/voice only (via Even's own
+  speech-to-text) — there's no typed free-text entry for answering
+  permission/question prompts from the glasses themselves.
+- The full approve/deny prompt flow is untested on real G2/R1 hardware
+  end-to-end; only the HTTP/SSE contract has been verified directly.
 
-```powershell
-# 1. Configure a speech-to-text provider (one-time, interactive)
-cd server
-npm install
-npm run setup   # choose Azure Speech, OpenAI Whisper, or Google Gemini, paste your key
-node src/index.js
+## How it's built
 
-# 2. Start the glasses app dev server
-cd ../app
-npm install
-npm run dev
-```
-
-`npm run setup` writes your key(s) to `server/.env`, which is gitignored and
-never leaves this machine. You can re-run it any time to switch providers or
-update a key. Prefer doing it by hand? Copy `server/.env.example` to
-`server/.env` and fill in one provider's block yourself, or set the same
-variables directly in your shell environment — either works, since the
-server loads `.env` automatically on startup.
-
-### Speech-to-text providers
-
-Only one is required. If `STT_PROVIDER` isn't set explicitly, the relay
-auto-detects the first one with credentials present, in this order:
-
-| Provider | Env vars | Get a key |
-|---|---|---|
-| Azure Speech | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | [portal.azure.com](https://portal.azure.com) → create a Speech resource → Keys and Endpoint |
-| OpenAI Whisper | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
-| Google Gemini | `GEMINI_API_KEY` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — has a free tier |
-
-Anthropic isn't offered here — Claude's API doesn't currently accept audio
-input, so it can't do speech-to-text.
-
-```powershell
-# 3. Preview in the Even Hub simulator
-npx evenhub-simulator http://localhost:5173
-
-# 4. Or sideload onto real G2 hardware (same Wi-Fi network)
-npx evenhub qr --url http://<your-lan-ip>:5173
-```
-
-## Controls
-
-- **Picker screen**: tap an item to select/resume it, or tap "+ New session"
-  to start a new one. Double-tap exits the app (standard SDK confirm-to-exit
-  flow).
-- **Chat screen**: tap the footer to start/stop voice recording. Double-tap
-  returns to the session picker.
-
-## First-time setup on the glasses
-
-The first time you launch the app to your glasses, before any relay URL has
-been saved, it shows **"Setup required: Open this app from your phone menu
-to connect"** instead of guessing an address. Open the app from the Even
-App's own plugin menu on your phone (not by launching it to the glasses) to
-complete setup — see the next section.
-
-## Packaging your own build
-
-Before you can pack a working `.ehpk`, tell it which relay address to trust:
-
-```powershell
-cd app
-npm run configure   # auto-detects your LAN IP, lets you confirm the port
-```
-
-This rewrites `app.json`'s `network` permission whitelist to your own
-`http://<your-lan-ip>:<port>` — it only affects your local copy of the repo,
-nothing is shared. Then build and pack as usual:
-
-```powershell
-npm run build
-npx evenhub pack app.json dist -o copilot-terminal.ehpk
-```
-
-Sideload the resulting `.ehpk` as a **Private Build** from the Even App
-(Even Hub → your account → Private Builds → upload), rather than publishing
-it to the public store — see Even's
-[Private Testing docs](https://hub.evenrealities.com/docs/test/private-testing).
-
-Bump `app.json`'s `"version"` before every rebuild/repack you plan to
-distribute (even to yourself) so you can tell builds apart later.
-
-## Configuring the relay connection (phone-side app)
-
-Opening this app from the **Even App's own plugin menu on your phone**
-(rather than launching it to the glasses) is a first-class client, not just
-a settings form: you get a session list, can start a new session or open an
-existing one, and converse with Copilot using your phone's own keyboard —
-including typing free-text answers to permission/question prompts, which
-the glasses can only do by voice.
-
-The first time it's opened with no relay configured yet, it goes straight to
-**Settings** to get you connected. After that, Settings lives behind the
-gear icon (⚙︎) in the top-right of the session list — enter the relay
-server's URL and (optional) auth token, tap **Test connection** to confirm
-it's reachable, then **Save**. The glasses UI picks up the saved value on
-its next launch too, via the SDK's persistent `setLocalStorage`.
-
-Note: the relay's address must also be included in this app's `network`
-permission whitelist (`app.json`, set via `npm run configure` above) — that's
-a build-time allowlist enforced by the Even App itself, separate from what's
-saved in settings. If your relay's address moves to a different network, the
-app needs to be reconfigured, rebuilt, and repacked with the new address
-whitelisted.
-
+- `server/src/copilotSession.js` — a `Bridge` class wrapping
+  `@github/copilot-sdk`: creates/resumes sessions, tracks messages, emits
+  events, exposes `onMessage()` for listeners.
+- `server/src/registry.js`, `server/src/store.js` — lightweight local
+  session bookkeeping used by the Bridge.
+- `server/src/evenTerminal/provider.js` — implements the `EvenProvider`
+  interface on top of the Bridge.
+- `server/src/evenTerminal/translate.js` — maps Bridge message types to
+  even-terminal's wire message shapes.
+- `server/src/evenTerminal/hub.js` — per-session SSE fan-out/ring buffer.
+- `server/src/evenTerminal/server.js` — the Express app implementing the
+  even-terminal `/api/*` routes + SSE, with Bearer/query token auth.
+- `server/src/evenTerminal/index.js` — entry point; prints the pairing URL.

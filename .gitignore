@@ -1,6 +1,4 @@
 node_modules/
-dist/
-dist-ssr/
 *.log
 npm-debug.log*
 
@@ -8,9 +6,6 @@ npm-debug.log*
 .env
 .env.*
 !.env.example
-
-# debug artifacts from simulator screenshots
-*.png
 
 # persistent server-side state (session registry, etc.)
 server/data/

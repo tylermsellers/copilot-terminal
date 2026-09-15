@@ -1,18 +1,15 @@
 {
-  "name": "copilot-glasses-relay",
+  "name": "copilot-glasses-terminal-adapter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local relay server that bridges an Even Realities G2 glasses app to a real GitHub Copilot CLI session via @github/copilot-sdk.",
-  "main": "src/index.js",
+  "description": "Local adapter that implements the Even App's Terminal Mode wire protocol on top of a real GitHub Copilot CLI session via @github/copilot-sdk.",
+  "main": "src/evenTerminal/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "start:terminal": "node src/evenTerminal/index.js",
-    "setup": "node src/setup.js"
+    "start:terminal": "node src/evenTerminal/index.js"
   },
   "dependencies": {
     "@github/copilot-sdk": "^1.0.13-preview.2",
-    "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^4.19.2"
   }
